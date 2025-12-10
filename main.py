@@ -349,17 +349,47 @@ async def check_wishlist(steam_id: str, app_id: str) -> bool:
         async with aiohttp.ClientSession() as session:
             async with session.get(url, headers={'User-Agent': 'Mozilla/5.0'}) as response:
                 if response.status == 200:
-                    data = await response.json()
+                    text = await response.text()
+                    # 빈 응답 체크
+                    if not text or text.strip() == '':
+                        print(f"위시리스트 API 빈 응답: steam_id={steam_id}")
+                        return False
+                    
+                    try:
+                        data = await response.json()
+                    except:
+                        # JSON 파싱 실패 시 텍스트로 확인
+                        print(f"위시리스트 API JSON 파싱 실패: {text[:200]}")
+                        return False
+                    
                     # 위시리스트 데이터가 있고, 해당 앱 ID가 포함되어 있는지 확인
                     if data and isinstance(data, dict):
-                        # 앱 ID가 문자열 키로 존재하는지 확인
-                        if app_id in data:
+                        # 앱 ID를 여러 형식으로 확인
+                        app_id_str = str(app_id)
+                        app_id_int = int(app_id) if app_id.isdigit() else None
+                        
+                        # 문자열 키로 확인
+                        if app_id_str in data:
+                            print(f"위시리스트 확인 성공 (문자열 키): {app_id_str}")
                             return True
-                        # 또는 숫자 키로 존재하는지 확인
-                        if str(app_id) in data:
+                        
+                        # 숫자 키로 확인
+                        if app_id_int and app_id_int in data:
+                            print(f"위시리스트 확인 성공 (숫자 키): {app_id_int}")
                             return True
+                        
+                        # 모든 키 확인 (디버깅용)
+                        if len(data) > 0:
+                            print(f"위시리스트 API 응답 키 샘플: {list(data.keys())[:5]}")
+                            print(f"찾는 앱 ID: {app_id} (문자열: {app_id_str}, 숫자: {app_id_int})")
+                    else:
+                        print(f"위시리스트 API 응답이 dict가 아님: {type(data)}")
+                else:
+                    print(f"위시리스트 API 응답 상태 코드: {response.status}")
     except Exception as e:
         print(f"위시리스트 확인 오류: {e}")
+        import traceback
+        traceback.print_exc()
         # 오류 발생 시 사용자 확인에 의존
         return False
     
