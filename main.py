@@ -19,6 +19,7 @@ APP_ID = os.getenv('APP_ID', '123456')  # 기본값, 실제 App ID로 변경 필
 COMMUNITY_POST_URL = os.getenv('COMMUNITY_POST_URL', 'https://store.steampowered.com/news/app/3966570/view/515228475882209343?l=english')
 MILESTONES = [10000, 30000, 50000]  # 마일스톤: 1만, 3만, 5만
 TARGET_WISHLIST_COUNT = 50000  # 최종 목표 위시리스트 수
+WISHLIST_API_URL = os.getenv('WISHLIST_API_URL')  # 위시리스트 수를 가져올 API URL (선택사항)
 REWARD_ROLE_ID = os.getenv('REWARD_ROLE_ID', '1448242630667534449')  # 모든 퀘스트 완료 시 부여할 역할 ID
 
 intents = discord.Intents.default()
@@ -297,7 +298,35 @@ async def verify_steam_id(steam_id: str) -> bool:
 
 
 async def get_wishlist_count_from_store(app_id: str) -> Optional[int]:
-    """Steam Store 페이지에서 위시리스트 수 가져오기"""
+    """위시리스트 수 가져오기 - API 우선, 실패 시 Steam Store 스크래핑"""
+    # 1. 사용자 정의 API URL이 있으면 우선 사용
+    if WISHLIST_API_URL:
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.get(WISHLIST_API_URL, headers={'User-Agent': 'Mozilla/5.0'}) as response:
+                    if response.status == 200:
+                        try:
+                            data = await response.json()
+                            # JSON 응답에서 위시리스트 수 추출 (다양한 형식 지원)
+                            if isinstance(data, dict):
+                                # 가능한 키 이름들
+                                for key in ['wishlist_count', 'wishlistCount', 'count', 'wishlist', 'total']:
+                                    if key in data:
+                                        count = data[key]
+                                        if isinstance(count, (int, str)):
+                                            return int(count)
+                            elif isinstance(data, (int, str)):
+                                return int(data)
+                        except:
+                            # JSON이 아닌 경우 텍스트로 숫자 추출
+                            text = await response.text()
+                            numbers = re.findall(r'\d+', text.replace(',', ''))
+                            if numbers:
+                                return int(numbers[0])
+        except Exception as e:
+            print(f"위시리스트 API 호출 오류: {e}")
+    
+    # 2. Steam Store 페이지 스크래핑 시도
     url = f"https://store.steampowered.com/app/{app_id}/"
     
     try:
@@ -328,9 +357,17 @@ async def get_wishlist_count_from_store(app_id: str) -> Optional[int]:
                     scripts = soup.find_all('script')
                     for script in scripts:
                         if script.string:
-                            match = re.search(r'wishlist_count["\']?\s*[:=]\s*(\d+)', script.string)
-                            if match:
-                                return int(match.group(1))
+                            # 더 정확한 패턴 시도
+                            patterns = [
+                                r'wishlist_count["\']?\s*[:=]\s*(\d+)',
+                                r'"wishlist_count"\s*:\s*(\d+)',
+                                r'wishlistCount["\']?\s*[:=]\s*(\d+)',
+                                r'g_rgWishlistData\s*=\s*\{[^}]*"(\d+)"',
+                            ]
+                            for pattern in patterns:
+                                match = re.search(pattern, script.string)
+                                if match:
+                                    return int(match.group(1))
     except Exception as e:
         print(f"위시리스트 수 가져오기 오류: {e}")
     
