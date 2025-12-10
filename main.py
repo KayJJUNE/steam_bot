@@ -1,6 +1,6 @@
 import discord
 from discord import app_commands
-from discord.ui import Button, View, Modal, TextInput
+from discord.ui import Button, View, Modal, TextInput, Select
 import aiohttp
 import sqlite3
 import os
@@ -16,7 +16,8 @@ DISCORD_TOKEN = os.getenv('DISCORD_TOKEN')
 STEAM_API_KEY = os.getenv('STEAM_API_KEY')
 APP_ID = os.getenv('APP_ID', '123456')  # 기본값, 실제 App ID로 변경 필요
 COMMUNITY_POST_URL = os.getenv('COMMUNITY_POST_URL', 'https://steamcommunity.com/app/...')
-TARGET_WISHLIST_COUNT = 50000  # 목표 위시리스트 수
+MILESTONES = [10000, 30000, 50000]  # 마일스톤: 1만, 3만, 5만
+TARGET_WISHLIST_COUNT = 50000  # 최종 목표 위시리스트 수
 
 intents = discord.Intents.default()
 # message_content intent는 슬래시 명령어만 사용하므로 필요 없음
@@ -117,15 +118,52 @@ class DatabaseManager:
         return 32500
 
 
-def create_progress_bar(current: int, total: int, length: int = 10) -> str:
-    """진행률 바 생성"""
-    if total == 0:
-        return "[" + "░" * length + "] 0 / 0"
+def create_progress_bar(current: int, milestones: list, length: int = 20) -> tuple:
+    """진행률 바 생성 및 마일스톤 정보 반환"""
+    if not milestones:
+        return "", []
     
-    percentage = current / total
-    filled = int(percentage * length)
-    bar = "█" * filled + "░" * (length - filled)
-    return f"[{bar}] {current:,} / {total:,}"
+    # 현재 달성한 마일스톤 찾기
+    achieved_milestones = []
+    next_milestone = None
+    
+    for milestone in milestones:
+        if current >= milestone:
+            achieved_milestones.append(milestone)
+        elif next_milestone is None:
+            next_milestone = milestone
+            break
+    
+    if next_milestone is None:
+        next_milestone = milestones[-1]
+        percentage = 100.0
+    else:
+        # 다음 마일스톤까지의 진행률 계산
+        prev_milestone = achieved_milestones[-1] if achieved_milestones else 0
+        if next_milestone > prev_milestone:
+            progress = (current - prev_milestone) / (next_milestone - prev_milestone)
+            percentage = min(100.0, (prev_milestone / milestones[-1] * 100) + (progress * (next_milestone - prev_milestone) / milestones[-1] * 100))
+        else:
+            percentage = (current / milestones[-1]) * 100
+    
+    # 전체 진행률 (최종 목표 기준)
+    total_percentage = (current / milestones[-1]) * 100
+    
+    # 진행률 바 생성
+    filled = int((total_percentage / 100) * length)
+    bar = "🟩" * filled + "⬜" * (length - filled)
+    
+    # 마일스톤 텍스트 생성
+    milestone_text = ""
+    for milestone in milestones:
+        if milestone in achieved_milestones:
+            milestone_text += f"✅ **{milestone//10000}만** "
+        else:
+            milestone_text += f"⚪ {milestone//10000}만 "
+    
+    progress_text = f"{bar}\n**{current:,}** / {milestones[-1]:,} ({total_percentage:.1f}% 달성)\n\n{milestone_text.strip()}"
+    
+    return progress_text, achieved_milestones
 
 
 class SteamLinkModal(Modal, title='Steam 계정 연결'):
@@ -253,6 +291,34 @@ async def check_wishlist(steam_id: str, app_id: str) -> bool:
     return True
 
 
+class SteamLinkSelect(Select):
+    """Steam 계정 연결을 위한 Select 메뉴 (선택사항)"""
+    
+    def __init__(self, db: DatabaseManager, view_instance):
+        options = [
+            discord.SelectOption(
+                label="Steam ID 64 입력",
+                description="Steam ID 64를 직접 입력합니다",
+                value="steam_id",
+                emoji="🔢"
+            ),
+            discord.SelectOption(
+                label="Steam 프로필 URL 입력",
+                description="Steam 프로필 URL을 입력합니다",
+                value="profile_url",
+                emoji="🔗"
+            )
+        ]
+        super().__init__(placeholder="Steam 계정 연결 (선택사항)...", options=options, min_values=1, max_values=1)
+        self.db = db
+        self.view_instance = view_instance
+    
+    async def callback(self, interaction: discord.Interaction):
+        # Steam 계정 연결은 선택사항이므로 Quest 완료와 무관
+        modal = SteamLinkModal(self.db, self.view_instance)
+        await interaction.response.send_modal(modal)
+
+
 class QuestView(View):
     """퀘스트 상호작용을 위한 View"""
     
@@ -261,21 +327,11 @@ class QuestView(View):
         self.db = db
         self.user_data = user_data or {}
         
-        # 링크 버튼은 __init__에서 직접 추가해야 함
-        self.add_item(Button(label='👍 Like & Comment', style=discord.ButtonStyle.link, url=COMMUNITY_POST_URL))
-    
-    @discord.ui.button(label='🔗 Link Steam ID', style=discord.ButtonStyle.primary)
-    async def link_steam(self, interaction: discord.Interaction, button: Button):
-        user_data = self.db.get_user(interaction.user.id)
-        if user_data and user_data.get('quest1_complete'):
-            await interaction.response.send_message(
-                "✅ 이미 Steam 계정이 연결되어 있습니다!",
-                ephemeral=True
-            )
-            return
+        # Steam 계정 연결 Select 메뉴 추가
+        self.add_item(SteamLinkSelect(db, self))
         
-        modal = SteamLinkModal(self.db, self)
-        await interaction.response.send_modal(modal)
+        # 스팀 페이지 링크 버튼 추가
+        self.add_item(Button(label='🔗 Steam 페이지 열기', style=discord.ButtonStyle.link, url=COMMUNITY_POST_URL))
     
     @discord.ui.button(label='🎁 Verify Wishlist', style=discord.ButtonStyle.primary)
     async def verify_wishlist(self, interaction: discord.Interaction, button: Button):
@@ -313,6 +369,29 @@ class QuestView(View):
                 ephemeral=True
             )
     
+    @discord.ui.button(label='✅ Steam 페이지 확인 완료', style=discord.ButtonStyle.success)
+    async def confirm_steam_page(self, interaction: discord.Interaction, button: Button):
+        user_data = self.db.get_user(interaction.user.id)
+        
+        if user_data and user_data.get('quest1_complete'):
+            await interaction.response.send_message(
+                "✅ 이미 Quest 1이 완료되었습니다!",
+                ephemeral=True
+            )
+            return
+        
+        # Steam 페이지를 열고 확인했으므로 Quest 1 완료 처리
+        self.db.create_user(interaction.user.id)
+        self.db.update_quest(interaction.user.id, 1, True)
+        
+        await interaction.response.send_message(
+            "✅ Steam 페이지 확인이 완료되었습니다! Quest 1이 완료되었습니다.",
+            ephemeral=True
+        )
+        
+        # Embed 업데이트
+        await self.update_embed(interaction)
+    
     @discord.ui.button(label='✅ I have Liked the post', style=discord.ButtonStyle.success)
     async def confirm_like(self, interaction: discord.Interaction, button: Button):
         user_data = self.db.get_user(interaction.user.id)
@@ -344,7 +423,7 @@ class QuestView(View):
         
         # 진행률 바 생성
         current_wishlist = self.db.get_total_wishlist_count()
-        progress_bar = create_progress_bar(current_wishlist, TARGET_WISHLIST_COUNT)
+        progress_text, achieved = create_progress_bar(current_wishlist, MILESTONES)
         
         # 퀘스트 상태
         quest1_status = "✅ Complete" if user_data.get('quest1_complete') else "❌ Incomplete"
@@ -352,8 +431,8 @@ class QuestView(View):
         quest3_status = "✅ Complete" if user_data.get('quest3_complete') else "❌ Incomplete"
         
         embed = discord.Embed(
-            title="Welcome to Spot Zero Hunter Program",
-            description=f"**Wishlist Milestone**\n{progress_bar}",
+            title="🎮 Welcome to Spot Zero Hunter Program",
+            description=f"**📊 Wishlist Milestone**\n\n{progress_text}",
             color=discord.Color.blue()
         )
         
@@ -401,7 +480,7 @@ async def steam_command(interaction: discord.Interaction):
     
     # 진행률 바 생성
     current_wishlist = db.get_total_wishlist_count()
-    progress_bar = create_progress_bar(current_wishlist, TARGET_WISHLIST_COUNT)
+    progress_text, achieved = create_progress_bar(current_wishlist, MILESTONES)
     
     # 퀘스트 상태
     quest1_status = "✅ Complete" if user_data.get('quest1_complete') else "❌ Incomplete"
@@ -409,8 +488,8 @@ async def steam_command(interaction: discord.Interaction):
     quest3_status = "✅ Complete" if user_data.get('quest3_complete') else "❌ Incomplete"
     
     embed = discord.Embed(
-        title="Welcome to Spot Zero Hunter Program",
-        description=f"**Wishlist Milestone**\n{progress_bar}",
+        title="🎮 Welcome to Spot Zero Hunter Program",
+        description=f"**📊 Wishlist Milestone**\n\n{progress_text}",
         color=discord.Color.blue()
     )
     
