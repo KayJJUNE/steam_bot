@@ -753,7 +753,8 @@ class QuestSelect(Select):
         
         if selected == "all_complete":
             await interaction.response.send_message(
-                "🎉 모든 퀘스트를 완료하셨습니다!",
+                "🎉 모든 퀘스트를 완료하셨습니다!\n\n"
+                "보상 역할이 자동으로 지급되었습니다. 서버에서 확인해보세요!",
                 ephemeral=True
             )
             return
@@ -1003,7 +1004,7 @@ class WishlistView(View):
 
 
 class WishlistConfirmView(View):
-    """위시리스트 확인을 위한 View"""
+    """위시리스트 확인을 위한 View - page_visited=True일 때만 생성되어야 함"""
     
     def __init__(self, db: DatabaseManager, quest_view_instance, page_visited: bool = False):
         super().__init__(timeout=None)
@@ -1012,6 +1013,11 @@ class WishlistConfirmView(View):
         self.page_visited = page_visited
         store_url = f"https://store.steampowered.com/app/{APP_ID}/"
         self.add_item(Button(label='🔗 Spot Zero 스토어 페이지 열기', style=discord.ButtonStyle.link, url=store_url))
+        # page_visited가 False이면 확인 버튼을 추가하지 않음 (무조건 방문 완료 버튼을 클릭해야 함)
+        # 이 View는 visited_store 버튼을 클릭했을 때만 생성되므로 page_visited=True여야 함
+        if not page_visited:
+            # 이 경우는 정상적인 플로우가 아님 - 경고만 출력
+            print(f"경고: WishlistConfirmView가 page_visited=False로 생성됨")
     
     @discord.ui.button(label='✅ 위시리스트 추가 완료', style=discord.ButtonStyle.success)
     async def confirm_wishlist(self, interaction: discord.Interaction, button: Button):
@@ -1125,7 +1131,7 @@ class SteamFollowView(View):
 
 
 class SteamFollowConfirmView(View):
-    """팔로우 확인을 위한 View"""
+    """팔로우 확인을 위한 View - page_visited=True일 때만 생성되어야 함"""
     
     def __init__(self, db: DatabaseManager, quest_view_instance, page_visited: bool = False):
         super().__init__(timeout=None)
@@ -1134,6 +1140,11 @@ class SteamFollowConfirmView(View):
         self.page_visited = page_visited
         store_url = f"https://store.steampowered.com/app/{APP_ID}/"
         self.add_item(Button(label='🔗 Spot Zero 스토어 페이지 열기', style=discord.ButtonStyle.link, url=store_url))
+        # page_visited가 False이면 확인 버튼을 추가하지 않음 (무조건 방문 완료 버튼을 클릭해야 함)
+        # 이 View는 visited_store 버튼을 클릭했을 때만 생성되므로 page_visited=True여야 함
+        if not page_visited:
+            # 이 경우는 정상적인 플로우가 아님 - 경고만 출력
+            print(f"경고: SteamFollowConfirmView가 page_visited=False로 생성됨")
     
     @discord.ui.button(label='✅ 팔로우 확인 완료', style=discord.ButtonStyle.success)
     async def confirm_follow(self, interaction: discord.Interaction, button: Button):
@@ -1223,7 +1234,7 @@ class PostLikeView(View):
 
 
 class PostLikeConfirmView(View):
-    """포스트 라이크 확인을 위한 View"""
+    """포스트 라이크 확인을 위한 View - page_visited=True일 때만 생성되어야 함"""
     
     def __init__(self, db: DatabaseManager, quest_view_instance, page_visited: bool = False):
         super().__init__(timeout=None)
@@ -1231,6 +1242,11 @@ class PostLikeConfirmView(View):
         self.quest_view_instance = quest_view_instance
         self.page_visited = page_visited
         self.add_item(Button(label='🔗 포스트 페이지 열기', style=discord.ButtonStyle.link, url=COMMUNITY_POST_URL))
+        # page_visited가 False이면 확인 버튼을 추가하지 않음 (무조건 방문 완료 버튼을 클릭해야 함)
+        # 이 View는 visited_post 버튼을 클릭했을 때만 생성되므로 page_visited=True여야 함
+        if not page_visited:
+            # 이 경우는 정상적인 플로우가 아님 - 경고만 출력
+            print(f"경고: PostLikeConfirmView가 page_visited=False로 생성됨")
     
     @discord.ui.button(label='✅ 포스트 확인 완료', style=discord.ButtonStyle.success)
     async def confirm_post_like(self, interaction: discord.Interaction, button: Button):
