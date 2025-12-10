@@ -223,8 +223,11 @@ class SteamLinkModal(Modal, title='Steam 계정 연결'):
             if steam_input.isdigit():
                 steam_id = steam_input
         
+        # 먼저 defer를 호출하여 상호작용을 처리
+        await interaction.response.defer(ephemeral=True)
+        
         if not steam_id:
-            await interaction.response.send_message(
+            await interaction.followup.send(
                 "❌ 유효하지 않은 Steam ID 또는 URL입니다. Steam ID 64 또는 프로필 URL을 입력해주세요.",
                 ephemeral=True
             )
@@ -234,7 +237,7 @@ class SteamLinkModal(Modal, title='Steam 계정 연결'):
         is_valid = await verify_steam_id(steam_id)
         
         if not is_valid:
-            await interaction.response.send_message(
+            await interaction.followup.send(
                 "❌ Steam ID를 확인할 수 없습니다. 올바른 Steam ID인지 확인해주세요.",
                 ephemeral=True
             )
@@ -245,8 +248,6 @@ class SteamLinkModal(Modal, title='Steam 계정 연결'):
         self.db.update_steam_id(interaction.user.id, steam_id)
         # Steam ID 연동 완료 처리
         self.db.update_quest(interaction.user.id, 1, True)
-        
-        await interaction.response.defer(ephemeral=True)
         
         await interaction.followup.send(
             f"✅ Step 1: Steam ID 연동이 완료되었습니다! (Steam ID: {steam_id})",
@@ -417,20 +418,42 @@ async def check_wishlist(steam_id: str, app_id: str) -> bool:
         return False
     
     # Steam 위시리스트 데이터 가져오기
+    # 참고: Steam 위시리스트 API는 로그인이 필요하거나 프로필이 공개되어 있어야 함
     url = f"https://store.steampowered.com/wishlist/profiles/{steam_id}/wishlistdata/"
     
     print(f"위시리스트 확인 시작: steam_id={steam_id}, app_id={app_id}")
+    print(f"위시리스트 API URL: {url}")
     
     try:
+        # 더 나은 헤더 설정 (브라우저처럼 보이도록)
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Accept': 'application/json, text/javascript, */*; q=0.01',
+            'Accept-Language': 'en-US,en;q=0.9',
+            'Accept-Encoding': 'gzip, deflate, br',
+            'Referer': f'https://store.steampowered.com/wishlist/profiles/{steam_id}/',
+            'X-Requested-With': 'XMLHttpRequest'
+        }
+        
         async with aiohttp.ClientSession() as session:
-            async with session.get(url, headers={'User-Agent': 'Mozilla/5.0'}, timeout=aiohttp.ClientTimeout(total=10)) as response:
+            async with session.get(url, headers=headers, timeout=aiohttp.ClientTimeout(total=10)) as response:
                 print(f"위시리스트 API 응답 상태: {response.status}")
                 
                 if response.status == 200:
+                    # Content-Type 확인
+                    content_type = response.headers.get('Content-Type', '').lower()
+                    print(f"위시리스트 API Content-Type: {content_type}")
+                    
                     text = await response.text()
                     # 빈 응답 체크
                     if not text or text.strip() == '':
                         print(f"위시리스트 API 빈 응답: steam_id={steam_id}")
+                        return False
+                    
+                    # HTML 응답인지 확인 (Steam이 로그인 페이지나 오류 페이지를 반환할 수 있음)
+                    if text.strip().startswith('<!DOCTYPE') or text.strip().startswith('<html'):
+                        print(f"위시리스트 API가 HTML을 반환함 (로그인 필요 또는 프로필 비공개): steam_id={steam_id}")
+                        print(f"응답 시작 부분: {text[:200]}")
                         return False
                     
                     try:
@@ -439,6 +462,9 @@ async def check_wishlist(steam_id: str, app_id: str) -> bool:
                         # JSON 파싱 실패 시 텍스트로 확인
                         print(f"위시리스트 API JSON 파싱 실패: {json_error}")
                         print(f"응답 텍스트 (처음 500자): {text[:500]}")
+                        # HTML인 경우 추가 안내
+                        if text.strip().startswith('<!DOCTYPE') or text.strip().startswith('<html'):
+                            print(f"⚠️ Steam이 HTML 페이지를 반환했습니다. 프로필이 비공개이거나 로그인이 필요할 수 있습니다.")
                         return False
                     
                     # 위시리스트 데이터가 있고, 해당 앱 ID가 포함되어 있는지 확인
