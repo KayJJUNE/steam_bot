@@ -1157,6 +1157,10 @@ class QuestView(View):
             color=discord.Color.blue()
         )
         
+        # 마일스톤 리워드 이미지 추가
+        if MILESTONE_REWARD_IMAGE_URL:
+            embed.set_image(url=MILESTONE_REWARD_IMAGE_URL)
+        
         embed.add_field(
             name="Step 1: Steam ID 연동",
             value=quest1_status,
