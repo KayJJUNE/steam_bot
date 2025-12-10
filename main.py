@@ -722,7 +722,7 @@ class QuestSelect(Select):
             )
             
             # 처음에는 스토어 페이지 링크와 방문 완료 버튼만 표시
-            view = SteamFollowView(self.db, self.view_instance, show_confirm=False)
+            view = SteamFollowView(self.db, self.view_instance, page_visited=False)
             await interaction.response.send_message(
                 embed=guide_embed,
                 view=view,
@@ -909,11 +909,20 @@ class SteamFollowView(View):
         # 확인 버튼이 있는 새로운 View 생성
         view = SteamFollowConfirmView(self.db, self.quest_view_instance, page_visited=True)
         
-        await interaction.response.edit_message(
-            content="✅ 스토어 페이지를 방문하셨습니다!\n\n"
-                   "이제 스토어 페이지에서 '팔로우' 버튼을 클릭한 후, 아래 '팔로우 확인 완료' 버튼을 눌러주세요.",
-            view=view
-        )
+        try:
+            await interaction.response.edit_message(
+                content="✅ 스토어 페이지를 방문하셨습니다!\n\n"
+                       "이제 스토어 페이지에서 '팔로우' 버튼을 클릭한 후, 아래 '팔로우 확인 완료' 버튼을 눌러주세요.",
+                view=view
+            )
+        except:
+            # edit_message가 실패하면 새 메시지로 전송
+            await interaction.response.send_message(
+                "✅ 스토어 페이지를 방문하셨습니다!\n\n"
+                "이제 스토어 페이지에서 '팔로우' 버튼을 클릭한 후, 아래 '팔로우 확인 완료' 버튼을 눌러주세요.",
+                view=view,
+                ephemeral=True
+            )
 
 
 class SteamFollowConfirmView(View):
@@ -962,7 +971,9 @@ class SteamFollowConfirmView(View):
         self.db.create_user(interaction.user.id)
         self.db.update_quest(interaction.user.id, 3, True)
         
-        await interaction.response.send_message(
+        await interaction.response.defer(ephemeral=True)
+        
+        await interaction.followup.send(
             "✅ Step 3: Spot Zero Steam page follow가 완료되었습니다!",
             ephemeral=True
         )
@@ -993,11 +1004,20 @@ class PostLikeView(View):
         # 확인 버튼이 있는 새로운 View 생성
         view = PostLikeConfirmView(self.db, self.quest_view_instance, page_visited=True)
         
-        await interaction.response.edit_message(
-            content="✅ 포스트 페이지를 방문하셨습니다!\n\n"
-                   "이제 포스트 페이지에서 좋아요 버튼을 클릭한 후, 아래 '포스트 확인 완료' 버튼을 눌러주세요.",
-            view=view
-        )
+        try:
+            await interaction.response.edit_message(
+                content="✅ 포스트 페이지를 방문하셨습니다!\n\n"
+                       "이제 포스트 페이지에서 좋아요 버튼을 클릭한 후, 아래 '포스트 확인 완료' 버튼을 눌러주세요.",
+                view=view
+            )
+        except:
+            # edit_message가 실패하면 새 메시지로 전송
+            await interaction.response.send_message(
+                "✅ 포스트 페이지를 방문하셨습니다!\n\n"
+                "이제 포스트 페이지에서 좋아요 버튼을 클릭한 후, 아래 '포스트 확인 완료' 버튼을 눌러주세요.",
+                view=view,
+                ephemeral=True
+            )
 
 
 class PostLikeConfirmView(View):
