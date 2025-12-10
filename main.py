@@ -573,7 +573,8 @@ class PostLikeView(View):
         super().__init__(timeout=None)
         self.db = db
         self.quest_view_instance = quest_view_instance
-        self.add_item(Button(label='🔗 포스트 페이지 열기', style=discord.ButtonStyle.link, url=COMMUNITY_POST_URL))
+        store_url = f"https://store.steampowered.com/app/{APP_ID}/Spot_Zero/"
+        self.add_item(Button(label='🔗 포스트 페이지 열기', style=discord.ButtonStyle.link, url=store_url))
     
     @discord.ui.button(label='✅ 포스트 확인 완료', style=discord.ButtonStyle.success)
     async def confirm_post_like(self, interaction: discord.Interaction, button: Button):
