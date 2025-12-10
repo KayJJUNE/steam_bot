@@ -16,7 +16,7 @@ load_dotenv()
 DISCORD_TOKEN = os.getenv('DISCORD_TOKEN')
 STEAM_API_KEY = os.getenv('STEAM_API_KEY')
 APP_ID = os.getenv('APP_ID', '123456')  # 기본값, 실제 App ID로 변경 필요
-COMMUNITY_POST_URL = os.getenv('COMMUNITY_POST_URL', 'https://steamcommunity.com/app/...')
+COMMUNITY_POST_URL = os.getenv('COMMUNITY_POST_URL', f'https://store.steampowered.com/app/{APP_ID}/Spot_Zero/')
 MILESTONES = [10000, 30000, 50000]  # 마일스톤: 1만, 3만, 5만
 TARGET_WISHLIST_COUNT = 50000  # 최종 목표 위시리스트 수
 
@@ -329,13 +329,32 @@ async def get_wishlist_count_from_store(app_id: str) -> Optional[int]:
 
 
 async def check_wishlist(steam_id: str, app_id: str) -> bool:
-    """위시리스트 확인 (제한적 API)"""
-    # Steam Web API는 공개 위시리스트를 직접 확인하는 기능이 제한적입니다.
-    # 실제 구현에서는 사용자의 프로필이 공개되어 있어야 하며,
-    # 또는 사용자 확인을 통해 처리합니다.
+    """위시리스트 확인 - Steam 위시리스트 API 사용"""
+    if not steam_id:
+        return False
     
-    # MVP에서는 사용자가 버튼을 클릭하면 완료로 처리
-    return True
+    # Steam 위시리스트 데이터 가져오기
+    url = f"https://store.steampowered.com/wishlist/profiles/{steam_id}/wishlistdata/"
+    
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(url, headers={'User-Agent': 'Mozilla/5.0'}) as response:
+                if response.status == 200:
+                    data = await response.json()
+                    # 위시리스트 데이터가 있고, 해당 앱 ID가 포함되어 있는지 확인
+                    if data and isinstance(data, dict):
+                        # 앱 ID가 문자열 키로 존재하는지 확인
+                        if app_id in data:
+                            return True
+                        # 또는 숫자 키로 존재하는지 확인
+                        if str(app_id) in data:
+                            return True
+    except Exception as e:
+        print(f"위시리스트 확인 오류: {e}")
+        # 오류 발생 시 사용자 확인에 의존
+        return False
+    
+    return False
 
 
 class SteamLinkSelect(Select):
@@ -465,7 +484,9 @@ class QuestSelect(Select):
             view = WishlistView(self.db, self.view_instance)
             store_url = f"https://store.steampowered.com/app/{APP_ID}/"
             await interaction.response.send_message(
-                f"🔗 아래 버튼을 클릭하여 Spot Zero 스토어 페이지로 이동한 후, 위시리스트에 추가하고 돌아와서 확인 버튼을 눌러주세요!\n\n{store_url}",
+                f"🔗 아래 버튼을 클릭하여 Spot Zero 스토어 페이지로 이동한 후, 위시리스트에 추가하고 돌아와서 확인 버튼을 눌러주세요!\n\n"
+                f"⚠️ **중요**: Steam 프로필이 공개로 설정되어 있어야 위시리스트 검증이 가능합니다.\n\n"
+                f"{store_url}",
                 view=view,
                 ephemeral=True
             )
@@ -509,6 +530,30 @@ class WishlistView(View):
             )
             return
         
+        # Steam ID 확인
+        if not user_data or not user_data.get('steam_id'):
+            await interaction.response.send_message(
+                "❌ 먼저 Step 1: Steam ID 연동을 완료해주세요!",
+                ephemeral=True
+            )
+            return
+        
+        # 위시리스트 검증 시도
+        steam_id = user_data.get('steam_id')
+        has_wishlist = await check_wishlist(steam_id, APP_ID)
+        
+        if not has_wishlist:
+            await interaction.response.send_message(
+                "❌ 위시리스트에 Spot Zero가 추가되지 않았습니다.\n\n"
+                "다음을 확인해주세요:\n"
+                "1. Steam 프로필이 공개로 설정되어 있는지 확인\n"
+                "2. 위시리스트에 Spot Zero를 추가했는지 확인\n"
+                "3. 잠시 후 다시 시도해주세요",
+                ephemeral=True
+            )
+            return
+        
+        # 검증 성공 - 완료 처리
         self.db.create_user(interaction.user.id)
         self.db.update_quest(interaction.user.id, 2, True)
         
@@ -541,6 +586,16 @@ class PostLikeView(View):
             )
             return
         
+        # Steam ID 확인 (최소한의 검증)
+        if not user_data or not user_data.get('steam_id'):
+            await interaction.response.send_message(
+                "❌ 먼저 Step 1: Steam ID 연동을 완료해주세요!",
+                ephemeral=True
+            )
+            return
+        
+        # Steam 커뮤니티 포스트 좋아요는 API로 확인할 수 없으므로,
+        # 사용자가 페이지를 방문하고 확인 버튼을 누른 것으로 간주
         self.db.create_user(interaction.user.id)
         self.db.update_quest(interaction.user.id, 3, True)
         
