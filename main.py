@@ -242,10 +242,7 @@ class SteamLinkModal(Modal, title='Steam 계정 연결'):
             ephemeral=True
         )
         
-        # Embed 업데이트는 하지 않음 (중복 방지)
-        
-        # Embed 업데이트
-        await self.view_instance.update_embed(interaction)
+        # Embed 업데이트는 하지 않음 (중복 방지 - /steam 명령어로 다시 확인 가능)
 
 
 async def resolve_vanity_url(vanity_url: str) -> Optional[str]:
