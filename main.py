@@ -413,14 +413,19 @@ async def get_wishlist_count_from_store(app_id: str) -> Optional[int]:
 async def check_wishlist(steam_id: str, app_id: str) -> bool:
     """위시리스트 확인 - Steam 위시리스트 API 사용"""
     if not steam_id:
+        print(f"위시리스트 확인 실패: steam_id가 없음")
         return False
     
     # Steam 위시리스트 데이터 가져오기
     url = f"https://store.steampowered.com/wishlist/profiles/{steam_id}/wishlistdata/"
     
+    print(f"위시리스트 확인 시작: steam_id={steam_id}, app_id={app_id}")
+    
     try:
         async with aiohttp.ClientSession() as session:
-            async with session.get(url, headers={'User-Agent': 'Mozilla/5.0'}) as response:
+            async with session.get(url, headers={'User-Agent': 'Mozilla/5.0'}, timeout=aiohttp.ClientTimeout(total=10)) as response:
+                print(f"위시리스트 API 응답 상태: {response.status}")
+                
                 if response.status == 200:
                     text = await response.text()
                     # 빈 응답 체크
@@ -430,40 +435,60 @@ async def check_wishlist(steam_id: str, app_id: str) -> bool:
                     
                     try:
                         data = await response.json()
-                    except:
+                    except Exception as json_error:
                         # JSON 파싱 실패 시 텍스트로 확인
-                        print(f"위시리스트 API JSON 파싱 실패: {text[:200]}")
+                        print(f"위시리스트 API JSON 파싱 실패: {json_error}")
+                        print(f"응답 텍스트 (처음 500자): {text[:500]}")
                         return False
                     
                     # 위시리스트 데이터가 있고, 해당 앱 ID가 포함되어 있는지 확인
                     if data and isinstance(data, dict):
                         # 앱 ID를 여러 형식으로 확인
                         app_id_str = str(app_id)
-                        app_id_int = int(app_id) if app_id.isdigit() else None
+                        app_id_int = int(app_id) if str(app_id).isdigit() else None
+                        
+                        print(f"위시리스트 데이터 키 개수: {len(data)}")
+                        if len(data) > 0:
+                            print(f"위시리스트 API 응답 키 샘플 (처음 10개): {list(data.keys())[:10]}")
                         
                         # 문자열 키로 확인
                         if app_id_str in data:
-                            print(f"위시리스트 확인 성공 (문자열 키): {app_id_str}")
+                            print(f"✅ 위시리스트 확인 성공 (문자열 키): {app_id_str}")
                             return True
                         
                         # 숫자 키로 확인
-                        if app_id_int and app_id_int in data:
-                            print(f"위시리스트 확인 성공 (숫자 키): {app_id_int}")
+                        if app_id_int and str(app_id_int) in data:
+                            print(f"✅ 위시리스트 확인 성공 (숫자 키): {app_id_int}")
                             return True
                         
-                        # 모든 키 확인 (디버깅용)
-                        if len(data) > 0:
-                            print(f"위시리스트 API 응답 키 샘플: {list(data.keys())[:5]}")
-                            print(f"찾는 앱 ID: {app_id} (문자열: {app_id_str}, 숫자: {app_id_int})")
+                        # 모든 키를 문자열로 변환하여 확인 (Steam API가 문자열 키를 사용할 수 있음)
+                        data_keys_str = [str(k) for k in data.keys()]
+                        if app_id_str in data_keys_str:
+                            print(f"✅ 위시리스트 확인 성공 (문자열 변환 후): {app_id_str}")
+                            return True
+                        
+                        # 찾는 앱 ID 정보 출력
+                        print(f"❌ 위시리스트에 앱 ID가 없음")
+                        print(f"   찾는 앱 ID: {app_id} (문자열: {app_id_str}, 숫자: {app_id_int})")
                     else:
                         print(f"위시리스트 API 응답이 dict가 아님: {type(data)}")
+                        if data:
+                            print(f"응답 데이터 타입: {type(data)}, 내용 (처음 200자): {str(data)[:200]}")
+                elif response.status == 403:
+                    print(f"위시리스트 API 접근 거부 (403): 프로필이 비공개일 수 있습니다. steam_id={steam_id}")
+                    return False
+                elif response.status == 404:
+                    print(f"위시리스트 API 404: 프로필을 찾을 수 없습니다. steam_id={steam_id}")
+                    return False
                 else:
                     print(f"위시리스트 API 응답 상태 코드: {response.status}")
+    except aiohttp.ClientError as e:
+        print(f"위시리스트 확인 네트워크 오류: {e}")
+        return False
     except Exception as e:
         print(f"위시리스트 확인 오류: {e}")
         import traceback
         traceback.print_exc()
-        # 오류 발생 시 사용자 확인에 의존
         return False
     
     return False
@@ -861,11 +886,12 @@ class QuestSelect(Select):
 class WishlistManualConfirmView(View):
     """위시리스트 수동 확인을 위한 View"""
     
-    def __init__(self, db: DatabaseManager, quest_view_instance, steam_id: str):
+    def __init__(self, db: DatabaseManager, quest_view_instance, steam_id: str, page_visited: bool = False):
         super().__init__(timeout=300)  # 5분 타임아웃
         self.db = db
         self.quest_view_instance = quest_view_instance
         self.steam_id = steam_id
+        self.page_visited = page_visited  # 페이지 방문 여부 저장
     
     @discord.ui.button(label='✅ 수동 확인 (위시리스트에 추가함)', style=discord.ButtonStyle.success)
     async def manual_confirm(self, interaction: discord.Interaction, button: Button):
@@ -874,6 +900,18 @@ class WishlistManualConfirmView(View):
         if user_data and user_data.get('quest2_complete'):
             await interaction.response.send_message(
                 "✅ 이미 Step 2가 완료되었습니다!",
+                ephemeral=True
+            )
+            return
+        
+        # 페이지 방문 확인 (수동 확인도 페이지 방문 후에만 가능)
+        if not self.page_visited:
+            await interaction.response.send_message(
+                "❌ 먼저 페이지를 이동해서 퀘스트를 완료해주세요.\n\n"
+                "1. '스토어 페이지 열기' 버튼을 클릭하여 페이지로 이동\n"
+                "2. '스토어 페이지 방문 완료' 버튼을 클릭\n"
+                "3. 위시리스트에 추가한 후 '위시리스트 추가 완료' 버튼 클릭\n"
+                "4. 검증 실패 시 '수동 확인' 버튼 사용",
                 ephemeral=True
             )
             return
@@ -1014,8 +1052,8 @@ class WishlistConfirmView(View):
         has_wishlist = await check_wishlist(steam_id, APP_ID)
         
         if not has_wishlist:
-            # 검증 실패 시 수동 확인 옵션 제공
-            view = WishlistManualConfirmView(self.db, self.quest_view_instance, steam_id)
+            # 검증 실패 시 수동 확인 옵션 제공 (page_visited 상태 전달)
+            view = WishlistManualConfirmView(self.db, self.quest_view_instance, steam_id, page_visited=self.page_visited)
             await interaction.followup.send(
                 "❌ 자동 검증에 실패했습니다.\n\n"
                 "**다음을 확인해주세요:**\n"
@@ -1064,7 +1102,10 @@ class SteamFollowView(View):
         # 페이지 방문 플래그 설정
         self.page_visited = True
         
-        # 확인 버튼이 있는 새로운 View 생성
+        # 확인 버튼이 있는 새로운 View 생성 (방문 완료 버튼을 클릭했으므로 page_visited=True)
+        # 하지만 실제로는 사용자가 방문했는지 확인할 수 없으므로, 
+        # View 생성 시점에 page_visited를 True로 설정하되, 
+        # 실제 확인 버튼에서는 추가 검증을 수행
         view = SteamFollowConfirmView(self.db, self.quest_view_instance, page_visited=True)
         
         try:
@@ -1159,7 +1200,10 @@ class PostLikeView(View):
         # 페이지 방문 플래그 설정
         self.page_visited = True
         
-        # 확인 버튼이 있는 새로운 View 생성
+        # 확인 버튼이 있는 새로운 View 생성 (방문 완료 버튼을 클릭했으므로 page_visited=True)
+        # 하지만 실제로는 사용자가 방문했는지 확인할 수 없으므로,
+        # View 생성 시점에 page_visited를 True로 설정하되,
+        # 실제 확인 버튼에서는 추가 검증을 수행
         view = PostLikeConfirmView(self.db, self.quest_view_instance, page_visited=True)
         
         try:
