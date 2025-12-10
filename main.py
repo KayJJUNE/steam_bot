@@ -305,24 +305,32 @@ async def get_wishlist_count_from_store(app_id: str) -> Optional[int]:
             async with aiohttp.ClientSession() as session:
                 async with session.get(WISHLIST_API_URL, headers={'User-Agent': 'Mozilla/5.0'}) as response:
                     if response.status == 200:
+                        text = await response.text().strip()
+                        # 숫자만 반환하는 경우 직접 변환 시도
                         try:
-                            data = await response.json()
-                            # JSON 응답에서 위시리스트 수 추출 (다양한 형식 지원)
-                            if isinstance(data, dict):
-                                # 가능한 키 이름들
-                                for key in ['wishlist_count', 'wishlistCount', 'count', 'wishlist', 'total']:
-                                    if key in data:
-                                        count = data[key]
-                                        if isinstance(count, (int, str)):
-                                            return int(count)
-                            elif isinstance(data, (int, str)):
-                                return int(data)
-                        except:
-                            # JSON이 아닌 경우 텍스트로 숫자 추출
-                            text = await response.text()
-                            numbers = re.findall(r'\d+', text.replace(',', ''))
-                            if numbers:
-                                return int(numbers[0])
+                            # 쉼표 제거 후 숫자로 변환
+                            count = int(text.replace(',', '').replace(' ', ''))
+                            print(f"위시리스트 API에서 수치 가져옴: {count}")
+                            return count
+                        except ValueError:
+                            # 숫자가 아닌 경우 JSON 파싱 시도
+                            try:
+                                data = await response.json()
+                                # JSON 응답에서 위시리스트 수 추출 (다양한 형식 지원)
+                                if isinstance(data, dict):
+                                    # 가능한 키 이름들
+                                    for key in ['wishlist_count', 'wishlistCount', 'count', 'wishlist', 'total']:
+                                        if key in data:
+                                            count = data[key]
+                                            if isinstance(count, (int, str)):
+                                                return int(str(count).replace(',', ''))
+                                elif isinstance(data, (int, str)):
+                                    return int(str(data).replace(',', ''))
+                            except:
+                                # JSON도 아닌 경우 텍스트에서 숫자 추출
+                                numbers = re.findall(r'\d+', text.replace(',', ''))
+                                if numbers:
+                                    return int(numbers[0])
         except Exception as e:
             print(f"위시리스트 API 호출 오류: {e}")
     
