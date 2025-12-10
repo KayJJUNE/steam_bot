@@ -19,7 +19,7 @@ COMMUNITY_POST_URL = os.getenv('COMMUNITY_POST_URL', 'https://steamcommunity.com
 TARGET_WISHLIST_COUNT = 50000  # 목표 위시리스트 수
 
 intents = discord.Intents.default()
-intents.message_content = True
+# message_content intent는 슬래시 명령어만 사용하므로 필요 없음
 bot = discord.Client(intents=intents)
 tree = app_commands.CommandTree(bot)
 
