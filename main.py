@@ -666,15 +666,24 @@ class WishlistView(View):
         
         # 위시리스트 검증 시도
         steam_id = user_data.get('steam_id')
+        
+        # 검증 중 메시지 표시
+        await interaction.response.defer(ephemeral=True)
+        
         has_wishlist = await check_wishlist(steam_id, APP_ID)
         
         if not has_wishlist:
-            await interaction.response.send_message(
+            # 검증 실패 시 사용자에게 더 자세한 안내 제공
+            await interaction.followup.send(
                 "❌ 위시리스트에 Spot Zero가 추가되지 않았습니다.\n\n"
-                "다음을 확인해주세요:\n"
+                "**다음을 확인해주세요:**\n"
                 "1. Steam 프로필이 공개로 설정되어 있는지 확인\n"
+                "   → [프로필 설정 링크](https://steamcommunity.com/my/edit/settings)\n"
                 "2. 위시리스트에 Spot Zero를 추가했는지 확인\n"
-                "3. 잠시 후 다시 시도해주세요",
+                "   → [Spot Zero 스토어 페이지](https://store.steampowered.com/app/3966570/)\n"
+                "3. 위시리스트 추가 후 몇 분 정도 기다린 후 다시 시도해주세요\n"
+                "4. Steam 프로필 URL이 올바른지 확인\n\n"
+                "**참고**: Steam API가 프로필을 인식하는데 시간이 걸릴 수 있습니다.",
                 ephemeral=True
             )
             return
@@ -683,7 +692,7 @@ class WishlistView(View):
         self.db.create_user(interaction.user.id)
         self.db.update_quest(interaction.user.id, 2, True)
         
-        await interaction.response.send_message(
+        await interaction.followup.send(
             "✅ Step 2: Spot Zero Wishlist가 완료되었습니다!",
             ephemeral=True
         )
