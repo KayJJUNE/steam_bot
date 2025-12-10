@@ -779,6 +779,7 @@ class QuestView(View):
         quest1_status = "✅ Complete" if user_data.get('quest1_complete') else "❌ Incomplete"
         quest2_status = "✅ Complete" if user_data.get('quest2_complete') else "❌ Incomplete"
         quest3_status = "✅ Complete" if user_data.get('quest3_complete') else "❌ Incomplete"
+        quest4_status = "✅ Complete" if user_data.get('quest4_complete') else "❌ Incomplete"
         
         embed = discord.Embed(
             title="🎮 Welcome to Spot Zero Hunter Program",
@@ -799,8 +800,14 @@ class QuestView(View):
         )
         
         embed.add_field(
-            name="Step 3: 포스트 라이크",
+            name="Step 3: Spot Zero Steam page follow",
             value=quest3_status,
+            inline=False
+        )
+        
+        embed.add_field(
+            name="Step 4: 포스트 라이크",
+            value=quest4_status,
             inline=False
         )
         
