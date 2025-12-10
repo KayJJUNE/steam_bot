@@ -591,13 +591,13 @@ class QuestSelect(Select):
                 )
                 return
             
-            # 가이드 메시지와 함께 View 표시
+            # 가이드 메시지와 함께 View 표시 (스토어 페이지 링크와 확인 버튼 함께)
             guide_embed = discord.Embed(
                 title="📝 Step 3: Spot Zero Steam page follow 가이드",
                 description="**Steam 페이지 팔로우 방법:**\n"
-                           "1. 아래 버튼을 클릭하여 Spot Zero 스토어 페이지로 이동\n"
-                           "2. 페이지에서 '팔로우' 버튼 클릭\n"
-                           "3. 돌아와서 '팔로우 확인 완료' 버튼 클릭",
+                           "1. 아래 '스토어 페이지 열기' 버튼을 클릭하여 Spot Zero 스토어 페이지로 이동\n"
+                           "2. 스토어 페이지에서 '팔로우' 버튼 클릭\n"
+                           "3. Discord로 돌아와서 '팔로우 확인 완료' 버튼 클릭",
                 color=discord.Color.blue()
             )
             
