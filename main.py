@@ -242,8 +242,7 @@ class SteamLinkModal(Modal, title='Steam 계정 연결'):
             ephemeral=True
         )
         
-        # Embed 업데이트
-        await self.view_instance.update_embed(interaction)
+        # Embed 업데이트는 하지 않음 (중복 방지)
         
         # Embed 업데이트
         await self.view_instance.update_embed(interaction)
@@ -623,13 +622,14 @@ class QuestSelect(Select):
             guide_embed = discord.Embed(
                 title="📝 Step 4: 포스트 라이크 가이드",
                 description="**포스트 라이크 방법:**\n"
-                           "1. 아래 버튼을 클릭하여 Spot Zero 스토어 페이지로 이동\n"
-                           "2. 페이지에서 좋아요 버튼을 클릭\n"
-                           "3. 돌아와서 '포스트 확인 완료' 버튼 클릭",
+                           "1. 아래 '포스트 페이지 열기' 버튼을 클릭하여 포스트 페이지로 이동\n"
+                           "2. 포스트 페이지에서 좋아요 버튼을 클릭\n"
+                           "3. Discord로 돌아와서 '포스트 페이지 방문 완료' 버튼 클릭\n"
+                           "4. 그 다음 '포스트 확인 완료' 버튼 클릭",
                 color=discord.Color.blue()
             )
             
-            view = PostLikeView(self.db, self.view_instance)
+            view = PostLikeView(self.db, self.view_instance, page_visited=False)
             await interaction.response.send_message(
                 embed=guide_embed,
                 view=view,
@@ -765,26 +765,23 @@ class WishlistView(View):
 class SteamFollowView(View):
     """Steam 페이지 팔로우를 위한 View"""
     
-    def __init__(self, db: DatabaseManager, quest_view_instance, show_confirm: bool = False):
+    def __init__(self, db: DatabaseManager, quest_view_instance, page_visited: bool = False):
         super().__init__(timeout=None)
         self.db = db
         self.quest_view_instance = quest_view_instance
+        self.page_visited = page_visited
         store_url = f"https://store.steampowered.com/app/{APP_ID}/"
         # 스토어 페이지 링크 버튼은 항상 표시
         self.add_item(Button(label='🔗 Spot Zero 스토어 페이지 열기', style=discord.ButtonStyle.link, url=store_url))
-        
-        if show_confirm:
-            # 확인 버튼이 필요한 경우에만 추가
-            pass
-        else:
-            # 처음에는 방문 완료 버튼만 표시
-            pass
     
     @discord.ui.button(label='✅ 스토어 페이지 방문 완료', style=discord.ButtonStyle.primary)
     async def visited_store(self, interaction: discord.Interaction, button: Button):
         """스토어 페이지 방문 완료 버튼 - 확인 버튼을 활성화"""
+        # 페이지 방문 플래그 설정
+        self.page_visited = True
+        
         # 확인 버튼이 있는 새로운 View 생성
-        view = SteamFollowConfirmView(self.db, self.quest_view_instance)
+        view = SteamFollowConfirmView(self.db, self.quest_view_instance, page_visited=True)
         
         await interaction.response.edit_message(
             content="✅ 스토어 페이지를 방문하셨습니다!\n\n"
@@ -796,10 +793,11 @@ class SteamFollowView(View):
 class SteamFollowConfirmView(View):
     """팔로우 확인을 위한 View"""
     
-    def __init__(self, db: DatabaseManager, quest_view_instance):
+    def __init__(self, db: DatabaseManager, quest_view_instance, page_visited: bool = False):
         super().__init__(timeout=None)
         self.db = db
         self.quest_view_instance = quest_view_instance
+        self.page_visited = page_visited
         store_url = f"https://store.steampowered.com/app/{APP_ID}/"
         self.add_item(Button(label='🔗 Spot Zero 스토어 페이지 열기', style=discord.ButtonStyle.link, url=store_url))
     
@@ -810,6 +808,17 @@ class SteamFollowConfirmView(View):
         if user_data and user_data.get('quest3_complete'):
             await interaction.response.send_message(
                 "✅ 이미 Step 3이 완료되었습니다!",
+                ephemeral=True
+            )
+            return
+        
+        # 페이지 방문 확인
+        if not self.page_visited:
+            await interaction.response.send_message(
+                "❌ 먼저 페이지를 이동해서 퀘스트를 완료해주세요.\n\n"
+                "1. '스토어 페이지 열기' 버튼을 클릭하여 페이지로 이동\n"
+                "2. '스토어 페이지 방문 완료' 버튼을 클릭\n"
+                "3. 그 다음 '팔로우 확인 완료' 버튼을 클릭",
                 ephemeral=True
             )
             return
@@ -839,10 +848,37 @@ class SteamFollowConfirmView(View):
 class PostLikeView(View):
     """포스트 라이크를 위한 View"""
     
-    def __init__(self, db: DatabaseManager, quest_view_instance):
+    def __init__(self, db: DatabaseManager, quest_view_instance, page_visited: bool = False):
         super().__init__(timeout=None)
         self.db = db
         self.quest_view_instance = quest_view_instance
+        self.page_visited = page_visited
+        self.add_item(Button(label='🔗 포스트 페이지 열기', style=discord.ButtonStyle.link, url=COMMUNITY_POST_URL))
+    
+    @discord.ui.button(label='✅ 포스트 페이지 방문 완료', style=discord.ButtonStyle.primary)
+    async def visited_post(self, interaction: discord.Interaction, button: Button):
+        """포스트 페이지 방문 완료 버튼 - 확인 버튼을 활성화"""
+        # 페이지 방문 플래그 설정
+        self.page_visited = True
+        
+        # 확인 버튼이 있는 새로운 View 생성
+        view = PostLikeConfirmView(self.db, self.quest_view_instance, page_visited=True)
+        
+        await interaction.response.edit_message(
+            content="✅ 포스트 페이지를 방문하셨습니다!\n\n"
+                   "이제 포스트 페이지에서 좋아요 버튼을 클릭한 후, 아래 '포스트 확인 완료' 버튼을 눌러주세요.",
+            view=view
+        )
+
+
+class PostLikeConfirmView(View):
+    """포스트 라이크 확인을 위한 View"""
+    
+    def __init__(self, db: DatabaseManager, quest_view_instance, page_visited: bool = False):
+        super().__init__(timeout=None)
+        self.db = db
+        self.quest_view_instance = quest_view_instance
+        self.page_visited = page_visited
         self.add_item(Button(label='🔗 포스트 페이지 열기', style=discord.ButtonStyle.link, url=COMMUNITY_POST_URL))
     
     @discord.ui.button(label='✅ 포스트 확인 완료', style=discord.ButtonStyle.success)
@@ -852,6 +888,17 @@ class PostLikeView(View):
         if user_data and user_data.get('quest4_complete'):
             await interaction.response.send_message(
                 "✅ 이미 Step 4가 완료되었습니다!",
+                ephemeral=True
+            )
+            return
+        
+        # 페이지 방문 확인
+        if not self.page_visited:
+            await interaction.response.send_message(
+                "❌ 먼저 페이지를 이동해서 퀘스트를 완료해주세요.\n\n"
+                "1. '포스트 페이지 열기' 버튼을 클릭하여 페이지로 이동\n"
+                "2. '포스트 페이지 방문 완료' 버튼을 클릭\n"
+                "3. 그 다음 '포스트 확인 완료' 버튼을 클릭",
                 ephemeral=True
             )
             return
