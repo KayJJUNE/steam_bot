@@ -129,6 +129,19 @@ class DatabaseManager:
         # 실시간으로 가져오는 함수는 별도로 구현
         # 여기서는 캐시된 값을 반환 (실시간 업데이트는 async 함수에서)
         return 32500
+    
+    def are_all_quests_complete(self, discord_id: int) -> bool:
+        """모든 퀘스트가 완료되었는지 확인"""
+        user_data = self.get_user(discord_id)
+        if not user_data:
+            return False
+        
+        return (
+            user_data.get('quest1_complete', False) and
+            user_data.get('quest2_complete', False) and
+            user_data.get('quest3_complete', False) and
+            user_data.get('quest4_complete', False)
+        )
 
 
 def create_progress_bar(current: int, milestones: list, length: int = 20) -> tuple:
@@ -1286,23 +1299,30 @@ class QuestView(View):
         # View 재생성 (상태 반영)
         view = QuestView(self.db, user_data)
         
+        # interaction 상태 확인 및 메시지 전송
         try:
-            # followup이 가능한지 확인
+            # response가 이미 완료되었는지 확인
             if interaction.response.is_done():
+                # followup.send 사용 (이미 defer 또는 response가 완료된 경우)
                 await interaction.followup.send(embed=embed, view=view, ephemeral=True)
             else:
+                # response.send_message 사용 (아직 response가 완료되지 않은 경우)
                 await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
+        except discord.errors.InteractionResponded:
+            # 이미 응답이 전송된 경우 followup 사용
+            await interaction.followup.send(embed=embed, view=view, ephemeral=True)
         except Exception as e:
             print(f"update_embed 메시지 전송 오류: {e}")
+            import traceback
+            traceback.print_exc()
             # edit 시도
             try:
                 await interaction.edit_original_response(embed=embed, view=view)
             except Exception as e2:
                 print(f"update_embed edit 오류: {e2}")
-                # 최후의 수단: 새 메시지로 전송
+                # 최후의 수단: followup 재시도
                 try:
-                    if hasattr(interaction, 'channel') and interaction.channel:
-                        await interaction.channel.send(embed=embed, view=view)
+                    await interaction.followup.send(embed=embed, view=view, ephemeral=True)
                 except:
                     pass
 
