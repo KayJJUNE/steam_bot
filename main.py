@@ -456,15 +456,32 @@ async def check_wishlist(steam_id: str, app_id: str) -> bool:
                             print(f"✅ 위시리스트 확인 성공 (문자열 키): {app_id_str}")
                             return True
                         
-                        # 숫자 키로 확인
-                        if app_id_int and str(app_id_int) in data:
-                            print(f"✅ 위시리스트 확인 성공 (숫자 키): {app_id_int}")
-                            return True
+                        # 숫자 키로 확인 (dict의 키는 정수일 수 있음)
+                        if app_id_int:
+                            # 직접 숫자 키로 확인
+                            if app_id_int in data:
+                                print(f"✅ 위시리스트 확인 성공 (숫자 키 직접): {app_id_int}")
+                                return True
+                            # 문자열로 변환한 키로 확인
+                            if str(app_id_int) in data:
+                                print(f"✅ 위시리스트 확인 성공 (숫자 키 문자열 변환): {app_id_int}")
+                                return True
                         
                         # 모든 키를 문자열로 변환하여 확인 (Steam API가 문자열 키를 사용할 수 있음)
                         data_keys_str = [str(k) for k in data.keys()]
                         if app_id_str in data_keys_str:
                             print(f"✅ 위시리스트 확인 성공 (문자열 변환 후): {app_id_str}")
+                            return True
+                        
+                        # 모든 키를 정수로 변환하여 확인
+                        data_keys_int = []
+                        for k in data.keys():
+                            try:
+                                data_keys_int.append(int(k))
+                            except (ValueError, TypeError):
+                                pass
+                        if app_id_int and app_id_int in data_keys_int:
+                            print(f"✅ 위시리스트 확인 성공 (정수 변환 후): {app_id_int}")
                             return True
                         
                         # 찾는 앱 ID 정보 출력
