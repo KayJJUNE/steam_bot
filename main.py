@@ -1065,7 +1065,9 @@ class PostLikeConfirmView(View):
         self.db.create_user(interaction.user.id)
         self.db.update_quest(interaction.user.id, 4, True)
         
-        await interaction.response.send_message(
+        await interaction.response.defer(ephemeral=True)
+        
+        await interaction.followup.send(
             "✅ Step 4: 포스트 라이크가 완료되었습니다!",
             ephemeral=True
         )
