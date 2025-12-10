@@ -591,17 +591,19 @@ class QuestSelect(Select):
                 )
                 return
             
-            # 가이드 메시지와 함께 View 표시 (스토어 페이지 링크와 확인 버튼 함께)
+            # 가이드 메시지와 함께 View 표시 (처음에는 스토어 페이지 링크만)
             guide_embed = discord.Embed(
                 title="📝 Step 3: Spot Zero Steam page follow 가이드",
                 description="**Steam 페이지 팔로우 방법:**\n"
                            "1. 아래 '스토어 페이지 열기' 버튼을 클릭하여 Spot Zero 스토어 페이지로 이동\n"
                            "2. 스토어 페이지에서 '팔로우' 버튼 클릭\n"
-                           "3. Discord로 돌아와서 '팔로우 확인 완료' 버튼 클릭",
+                           "3. Discord로 돌아와서 '스토어 페이지 방문 완료' 버튼 클릭\n"
+                           "4. 그 다음 '팔로우 확인 완료' 버튼 클릭",
                 color=discord.Color.blue()
             )
             
-            view = SteamFollowView(self.db, self.view_instance)
+            # 처음에는 스토어 페이지 링크와 방문 완료 버튼만 표시
+            view = SteamFollowView(self.db, self.view_instance, show_confirm=False)
             await interaction.response.send_message(
                 embed=guide_embed,
                 view=view,
@@ -762,6 +764,37 @@ class WishlistView(View):
 
 class SteamFollowView(View):
     """Steam 페이지 팔로우를 위한 View"""
+    
+    def __init__(self, db: DatabaseManager, quest_view_instance, show_confirm: bool = False):
+        super().__init__(timeout=None)
+        self.db = db
+        self.quest_view_instance = quest_view_instance
+        store_url = f"https://store.steampowered.com/app/{APP_ID}/"
+        # 스토어 페이지 링크 버튼은 항상 표시
+        self.add_item(Button(label='🔗 Spot Zero 스토어 페이지 열기', style=discord.ButtonStyle.link, url=store_url))
+        
+        if show_confirm:
+            # 확인 버튼이 필요한 경우에만 추가
+            pass
+        else:
+            # 처음에는 방문 완료 버튼만 표시
+            pass
+    
+    @discord.ui.button(label='✅ 스토어 페이지 방문 완료', style=discord.ButtonStyle.primary)
+    async def visited_store(self, interaction: discord.Interaction, button: Button):
+        """스토어 페이지 방문 완료 버튼 - 확인 버튼을 활성화"""
+        # 확인 버튼이 있는 새로운 View 생성
+        view = SteamFollowConfirmView(self.db, self.quest_view_instance)
+        
+        await interaction.response.edit_message(
+            content="✅ 스토어 페이지를 방문하셨습니다!\n\n"
+                   "이제 스토어 페이지에서 '팔로우' 버튼을 클릭한 후, 아래 '팔로우 확인 완료' 버튼을 눌러주세요.",
+            view=view
+        )
+
+
+class SteamFollowConfirmView(View):
+    """팔로우 확인을 위한 View"""
     
     def __init__(self, db: DatabaseManager, quest_view_instance):
         super().__init__(timeout=None)
