@@ -460,9 +460,21 @@ class QuestSelect(Select):
                 )
                 return
             
-            # Steam ID 연동 Modal 표시
-            modal = SteamLinkModal(self.db, self.view_instance)
-            await interaction.response.send_modal(modal)
+            # 가이드 Embed 먼저 표시
+            guide_embed = discord.Embed(
+                title="📝 Step 1: Steam ID 연동 가이드",
+                description="**💡 Tip**: Steam 프로필 URL과 ID는, Steam 프로필을 클릭하면 확인할 수 있습니다.\n\n"
+                           "**Steam ID 64 찾는 방법:**\n"
+                           "1. Steam 프로필 페이지로 이동\n"
+                           "2. 주소창에서 `/profiles/` 뒤의 숫자가 Steam ID 64입니다\n"
+                           "3. 또는 커스텀 URL인 경우 `/id/` 뒤의 텍스트를 입력하세요\n\n"
+                           "가이드를 확인한 후, 아래 버튼을 클릭하여 Steam ID를 입력하세요.",
+                color=discord.Color.blue()
+            )
+            
+            # 가이드와 함께 Modal 열기 버튼이 있는 View 표시
+            view = SteamLinkGuideView(self.db, self.view_instance)
+            await interaction.response.send_message(embed=guide_embed, view=view, ephemeral=True)
         
         elif selected == "quest2":
             # Step 2: Spot Zero Wishlist
@@ -480,13 +492,23 @@ class QuestSelect(Select):
                 )
                 return
             
-            # 위시리스트 페이지 링크와 확인 버튼이 있는 View 표시
+            # 가이드 메시지와 함께 View 표시
+            guide_embed = discord.Embed(
+                title="📝 Step 2: Spot Zero Wishlist 가이드",
+                description="**💡 Tip**: 사용자의 Steam 프로필이 공개로 설정되어 있어야 작동합니다.\n\n"
+                           f"**프로필 공개 설정**: [여기를 클릭하여 확인하세요](https://steamcommunity.com/my/edit/settings)\n\n"
+                           "**위시리스트 추가 방법:**\n"
+                           "1. 아래 버튼을 클릭하여 Spot Zero 스토어 페이지로 이동\n"
+                           "2. '위시리스트에 추가' 버튼 클릭\n"
+                           "3. 돌아와서 '위시리스트 추가 완료' 버튼 클릭",
+                color=discord.Color.blue()
+            )
+            
             view = WishlistView(self.db, self.view_instance)
             store_url = f"https://store.steampowered.com/app/{APP_ID}/"
+            
             await interaction.response.send_message(
-                f"🔗 아래 버튼을 클릭하여 Spot Zero 스토어 페이지로 이동한 후, 위시리스트에 추가하고 돌아와서 확인 버튼을 눌러주세요!\n\n"
-                f"⚠️ **중요**: Steam 프로필이 공개로 설정되어 있어야 위시리스트 검증이 가능합니다.\n\n"
-                f"{store_url}",
+                embed=guide_embed,
                 view=view,
                 ephemeral=True
             )
@@ -500,10 +522,19 @@ class QuestSelect(Select):
                 )
                 return
             
-            # 포스트 링크와 확인 버튼이 있는 View 표시
+            # 가이드 메시지와 함께 View 표시
+            guide_embed = discord.Embed(
+                title="📝 Step 3: 포스트 라이크 가이드",
+                description="**포스트 라이크 방법:**\n"
+                           "1. 아래 버튼을 클릭하여 Spot Zero 스토어 페이지로 이동\n"
+                           "2. 페이지에서 좋아요 버튼을 클릭\n"
+                           "3. 돌아와서 '포스트 확인 완료' 버튼 클릭",
+                color=discord.Color.blue()
+            )
+            
             view = PostLikeView(self.db, self.view_instance)
             await interaction.response.send_message(
-                "🔗 아래 버튼을 클릭하여 포스트 페이지로 이동한 후, 돌아와서 확인 버튼을 눌러주세요!",
+                embed=guide_embed,
                 view=view,
                 ephemeral=True
             )
