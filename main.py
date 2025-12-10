@@ -19,6 +19,7 @@ APP_ID = os.getenv('APP_ID', '123456')  # 기본값, 실제 App ID로 변경 필
 COMMUNITY_POST_URL = os.getenv('COMMUNITY_POST_URL', 'https://store.steampowered.com/news/app/3966570/view/515228475882209343?l=english')
 MILESTONES = [10000, 30000, 50000]  # 마일스톤: 1만, 3만, 5만
 TARGET_WISHLIST_COUNT = 50000  # 최종 목표 위시리스트 수
+REWARD_ROLE_ID = os.getenv('REWARD_ROLE_ID')  # 모든 퀘스트 완료 시 부여할 역할 ID
 
 intents = discord.Intents.default()
 # message_content intent는 슬래시 명령어만 사용하므로 필요 없음
@@ -237,8 +238,12 @@ class SteamLinkModal(Modal, title='Steam 계정 연결'):
         # Steam ID 연동 완료 처리
         self.db.update_quest(interaction.user.id, 1, True)
         
+        # 모든 퀘스트 완료 확인 및 역할 부여
+        role_assigned = await assign_reward_role(interaction, self.db)
+        role_message = "\n\n🎉 모든 퀘스트를 완료하셨습니다! 보상 역할이 부여되었습니다!" if role_assigned else ""
+        
         await interaction.response.send_message(
-            f"✅ Step 1: Steam ID 연동이 완료되었습니다! (Steam ID: {steam_id})",
+            f"✅ Step 1: Steam ID 연동이 완료되었습니다! (Steam ID: {steam_id}){role_message}",
             ephemeral=True
         )
         
@@ -390,6 +395,58 @@ async def check_wishlist(steam_id: str, app_id: str) -> bool:
         return False
     
     return False
+
+
+async def assign_reward_role(interaction: discord.Interaction, db: DatabaseManager) -> bool:
+    """모든 퀘스트 완료 시 보상 역할 부여"""
+    if not REWARD_ROLE_ID:
+        return False
+    
+    try:
+        role_id = int(REWARD_ROLE_ID)
+    except (ValueError, TypeError):
+        print(f"잘못된 역할 ID: {REWARD_ROLE_ID}")
+        return False
+    
+    # 모든 퀘스트 완료 확인
+    if not db.are_all_quests_complete(interaction.user.id):
+        return False
+    
+    # Guild 확인 (DM에서는 역할 부여 불가)
+    if not interaction.guild:
+        return False
+    
+    try:
+        # 역할 가져오기
+        role = interaction.guild.get_role(role_id)
+        if not role:
+            print(f"역할을 찾을 수 없습니다: {role_id}")
+            return False
+        
+        # 멤버 가져오기
+        member = interaction.guild.get_member(interaction.user.id)
+        if not member:
+            # 멤버를 찾을 수 없으면 fetch 시도
+            member = await interaction.guild.fetch_member(interaction.user.id)
+        
+        # 이미 역할이 있는지 확인
+        if role in member.roles:
+            return True  # 이미 역할이 있음
+        
+        # 역할 부여
+        await member.add_roles(role, reason="Spot Zero Hunter Program 모든 퀘스트 완료")
+        print(f"역할 부여 성공: {member.display_name} -> {role.name}")
+        return True
+        
+    except discord.Forbidden:
+        print(f"역할 부여 권한이 없습니다. 역할 ID: {role_id}")
+        return False
+    except discord.HTTPException as e:
+        print(f"역할 부여 오류: {e}")
+        return False
+    except Exception as e:
+        print(f"역할 부여 중 예외 발생: {e}")
+        return False
 
 
 class SteamLinkGuideView(View):
@@ -658,9 +715,13 @@ class WishlistManualConfirmView(View):
         self.db.create_user(interaction.user.id)
         self.db.update_quest(interaction.user.id, 2, True)
         
+        # 모든 퀘스트 완료 확인 및 역할 부여
+        role_assigned = await assign_reward_role(interaction, self.db)
+        role_message = "\n\n🎉 모든 퀘스트를 완료하셨습니다! 보상 역할이 부여되었습니다!" if role_assigned else ""
+        
         await interaction.response.send_message(
-            "✅ Step 2: Spot Zero Wishlist가 완료되었습니다!\n\n"
-            "수동 확인으로 처리되었습니다.",
+            f"✅ Step 2: Spot Zero Wishlist가 완료되었습니다!\n\n"
+            f"수동 확인으로 처리되었습니다.{role_message}",
             ephemeral=True
         )
         
@@ -750,8 +811,12 @@ class WishlistView(View):
         self.db.create_user(interaction.user.id)
         self.db.update_quest(interaction.user.id, 2, True)
         
+        # 모든 퀘스트 완료 확인 및 역할 부여
+        role_assigned = await assign_reward_role(interaction, self.db)
+        role_message = "\n\n🎉 모든 퀘스트를 완료하셨습니다! 보상 역할이 부여되었습니다!" if role_assigned else ""
+        
         await interaction.followup.send(
-            "✅ Step 2: Spot Zero Wishlist가 완료되었습니다!",
+            f"✅ Step 2: Spot Zero Wishlist가 완료되었습니다!{role_message}",
             ephemeral=True
         )
         
@@ -833,8 +898,12 @@ class SteamFollowConfirmView(View):
         self.db.create_user(interaction.user.id)
         self.db.update_quest(interaction.user.id, 3, True)
         
+        # 모든 퀘스트 완료 확인 및 역할 부여
+        role_assigned = await assign_reward_role(interaction, self.db)
+        role_message = "\n\n🎉 모든 퀘스트를 완료하셨습니다! 보상 역할이 부여되었습니다!" if role_assigned else ""
+        
         await interaction.response.send_message(
-            "✅ Step 3: Spot Zero Steam page follow가 완료되었습니다!",
+            f"✅ Step 3: Spot Zero Steam page follow가 완료되었습니다!{role_message}",
             ephemeral=True
         )
         
@@ -913,8 +982,12 @@ class PostLikeConfirmView(View):
         self.db.create_user(interaction.user.id)
         self.db.update_quest(interaction.user.id, 4, True)
         
+        # 모든 퀘스트 완료 확인 및 역할 부여
+        role_assigned = await assign_reward_role(interaction, self.db)
+        role_message = "\n\n🎉 모든 퀘스트를 완료하셨습니다! 보상 역할이 부여되었습니다!" if role_assigned else ""
+        
         await interaction.response.send_message(
-            "✅ Step 4: 포스트 라이크가 완료되었습니다!",
+            f"✅ Step 4: 포스트 라이크가 완료되었습니다!{role_message}",
             ephemeral=True
         )
         
