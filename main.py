@@ -45,9 +45,17 @@ class DatabaseManager:
                 quest1_complete INTEGER DEFAULT 0,
                 quest2_complete INTEGER DEFAULT 0,
                 quest3_complete INTEGER DEFAULT 0,
+                quest4_complete INTEGER DEFAULT 0,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         ''')
+        
+        # 기존 테이블에 quest4_complete 컬럼 추가 (마이그레이션)
+        try:
+            cursor.execute('ALTER TABLE users ADD COLUMN quest4_complete INTEGER DEFAULT 0')
+        except sqlite3.OperationalError:
+            # 컬럼이 이미 존재하는 경우 무시
+            pass
         
         conn.commit()
         conn.close()
@@ -58,7 +66,7 @@ class DatabaseManager:
         cursor = conn.cursor()
         
         cursor.execute('''
-            SELECT discord_id, steam_id, quest1_complete, quest2_complete, quest3_complete
+            SELECT discord_id, steam_id, quest1_complete, quest2_complete, quest3_complete, quest4_complete
             FROM users WHERE discord_id = ?
         ''', (discord_id,))
         
@@ -71,7 +79,8 @@ class DatabaseManager:
                 'steam_id': result[1],
                 'quest1_complete': bool(result[2]),
                 'quest2_complete': bool(result[3]),
-                'quest3_complete': bool(result[4])
+                'quest3_complete': bool(result[4]),
+                'quest4_complete': bool(result[5]) if len(result) > 5 else False
             }
         return None
     
@@ -431,12 +440,21 @@ class QuestSelect(Select):
                 emoji="🎁"
             ))
         
-        # Step 3: 포스트 라이크 (완료되지 않은 경우만 표시)
+        # Step 3: Spot Zero Steam page follow (완료되지 않은 경우만 표시)
         if not user_data.get('quest3_complete'):
             options.append(discord.SelectOption(
-                label="Step 3: 포스트 라이크",
-                description="포스트에 좋아요를 눌러주세요",
+                label="Step 3: Spot Zero Steam page follow",
+                description="Spot Zero Steam 페이지를 팔로우하세요",
                 value="quest3",
+                emoji="⭐"
+            ))
+        
+        # Step 4: 포스트 라이크 (완료되지 않은 경우만 표시)
+        if not user_data.get('quest4_complete'):
+            options.append(discord.SelectOption(
+                label="Step 4: 포스트 라이크",
+                description="포스트에 좋아요를 눌러주세요",
+                value="quest4",
                 emoji="👍"
             ))
         
@@ -528,7 +546,7 @@ class QuestSelect(Select):
             )
         
         elif selected == "quest3":
-            # Step 3: 포스트 라이크
+            # Step 3: Spot Zero Steam page follow
             if user_data.get('quest3_complete'):
                 await interaction.response.send_message(
                     "✅ 이미 Step 3이 완료되었습니다!",
@@ -536,9 +554,42 @@ class QuestSelect(Select):
                 )
                 return
             
+            if not user_data.get('steam_id'):
+                await interaction.response.send_message(
+                    "❌ 먼저 Step 1: Steam ID 연동을 완료해주세요!",
+                    ephemeral=True
+                )
+                return
+            
             # 가이드 메시지와 함께 View 표시
             guide_embed = discord.Embed(
-                title="📝 Step 3: 포스트 라이크 가이드",
+                title="📝 Step 3: Spot Zero Steam page follow 가이드",
+                description="**Steam 페이지 팔로우 방법:**\n"
+                           "1. 아래 버튼을 클릭하여 Spot Zero 스토어 페이지로 이동\n"
+                           "2. 페이지에서 '팔로우' 버튼 클릭\n"
+                           "3. 돌아와서 '팔로우 확인 완료' 버튼 클릭",
+                color=discord.Color.blue()
+            )
+            
+            view = SteamFollowView(self.db, self.view_instance)
+            await interaction.response.send_message(
+                embed=guide_embed,
+                view=view,
+                ephemeral=True
+            )
+        
+        elif selected == "quest4":
+            # Step 4: 포스트 라이크
+            if user_data.get('quest4_complete'):
+                await interaction.response.send_message(
+                    "✅ 이미 Step 4가 완료되었습니다!",
+                    ephemeral=True
+                )
+                return
+            
+            # 가이드 메시지와 함께 View 표시
+            guide_embed = discord.Embed(
+                title="📝 Step 4: 포스트 라이크 가이드",
                 description="**포스트 라이크 방법:**\n"
                            "1. 아래 버튼을 클릭하여 Spot Zero 스토어 페이지로 이동\n"
                            "2. 페이지에서 좋아요 버튼을 클릭\n"
@@ -611,6 +662,49 @@ class WishlistView(View):
         await self.quest_view_instance.update_embed(interaction)
 
 
+class SteamFollowView(View):
+    """Steam 페이지 팔로우를 위한 View"""
+    
+    def __init__(self, db: DatabaseManager, quest_view_instance):
+        super().__init__(timeout=None)
+        self.db = db
+        self.quest_view_instance = quest_view_instance
+        store_url = f"https://store.steampowered.com/app/{APP_ID}/"
+        self.add_item(Button(label='🔗 Spot Zero 스토어 페이지 열기', style=discord.ButtonStyle.link, url=store_url))
+    
+    @discord.ui.button(label='✅ 팔로우 확인 완료', style=discord.ButtonStyle.success)
+    async def confirm_follow(self, interaction: discord.Interaction, button: Button):
+        user_data = self.db.get_user(interaction.user.id)
+        
+        if user_data and user_data.get('quest3_complete'):
+            await interaction.response.send_message(
+                "✅ 이미 Step 3이 완료되었습니다!",
+                ephemeral=True
+            )
+            return
+        
+        # Steam ID 확인
+        if not user_data or not user_data.get('steam_id'):
+            await interaction.response.send_message(
+                "❌ 먼저 Step 1: Steam ID 연동을 완료해주세요!",
+                ephemeral=True
+            )
+            return
+        
+        # Steam 페이지 팔로우는 API로 확인할 수 없으므로,
+        # 사용자가 페이지를 방문하고 확인 버튼을 누른 것으로 간주
+        self.db.create_user(interaction.user.id)
+        self.db.update_quest(interaction.user.id, 3, True)
+        
+        await interaction.response.send_message(
+            "✅ Step 3: Spot Zero Steam page follow가 완료되었습니다!",
+            ephemeral=True
+        )
+        
+        # Embed 업데이트
+        await self.quest_view_instance.update_embed(interaction)
+
+
 class PostLikeView(View):
     """포스트 라이크를 위한 View"""
     
@@ -625,9 +719,9 @@ class PostLikeView(View):
     async def confirm_post_like(self, interaction: discord.Interaction, button: Button):
         user_data = self.db.get_user(interaction.user.id)
         
-        if user_data and user_data.get('quest3_complete'):
+        if user_data and user_data.get('quest4_complete'):
             await interaction.response.send_message(
-                "✅ 이미 Step 3이 완료되었습니다!",
+                "✅ 이미 Step 4가 완료되었습니다!",
                 ephemeral=True
             )
             return
@@ -643,10 +737,10 @@ class PostLikeView(View):
         # Steam 커뮤니티 포스트 좋아요는 API로 확인할 수 없으므로,
         # 사용자가 페이지를 방문하고 확인 버튼을 누른 것으로 간주
         self.db.create_user(interaction.user.id)
-        self.db.update_quest(interaction.user.id, 3, True)
+        self.db.update_quest(interaction.user.id, 4, True)
         
         await interaction.response.send_message(
-            "✅ Step 3: 포스트 라이크가 완료되었습니다!",
+            "✅ Step 4: 포스트 라이크가 완료되었습니다!",
             ephemeral=True
         )
         
@@ -746,6 +840,7 @@ async def steam_command(interaction: discord.Interaction):
     quest1_status = "✅ Complete" if user_data.get('quest1_complete') else "❌ Incomplete"
     quest2_status = "✅ Complete" if user_data.get('quest2_complete') else "❌ Incomplete"
     quest3_status = "✅ Complete" if user_data.get('quest3_complete') else "❌ Incomplete"
+    quest4_status = "✅ Complete" if user_data.get('quest4_complete') else "❌ Incomplete"
     
     embed = discord.Embed(
         title="🎮 Welcome to Spot Zero Hunter Program",
@@ -766,8 +861,14 @@ async def steam_command(interaction: discord.Interaction):
     )
     
     embed.add_field(
-        name="Step 3: 포스트 라이크",
+        name="Step 3: Spot Zero Steam page follow",
         value=quest3_status,
+        inline=False
+    )
+    
+    embed.add_field(
+        name="Step 4: 포스트 라이크",
+        value=quest4_status,
         inline=False
     )
     
