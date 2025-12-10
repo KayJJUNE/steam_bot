@@ -357,6 +357,20 @@ async def check_wishlist(steam_id: str, app_id: str) -> bool:
     return False
 
 
+class SteamLinkGuideView(View):
+    """Steam ID 연동 가이드 후 Modal을 여는 View"""
+    
+    def __init__(self, db: DatabaseManager, view_instance):
+        super().__init__(timeout=300)  # 5분 타임아웃
+        self.db = db
+        self.view_instance = view_instance
+    
+    @discord.ui.button(label='📝 Steam ID 입력하기', style=discord.ButtonStyle.primary)
+    async def open_modal(self, interaction: discord.Interaction, button: Button):
+        modal = SteamLinkModal(self.db, self.view_instance)
+        await interaction.response.send_modal(modal)
+
+
 class SteamLinkSelect(Select):
     """Steam 계정 연결을 위한 Select 메뉴 (선택사항)"""
     
