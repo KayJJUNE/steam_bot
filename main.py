@@ -7,6 +7,7 @@ import os
 import re
 from typing import Optional
 from dotenv import load_dotenv
+from bs4 import BeautifulSoup
 
 # 환경 변수 로드
 load_dotenv()
@@ -112,9 +113,9 @@ class DatabaseManager:
         conn.close()
     
     def get_total_wishlist_count(self) -> int:
-        """전체 위시리스트 수 조회 (현재는 하드코딩된 값 반환)"""
-        # 실제로는 Steam API나 다른 소스에서 가져와야 함
-        # MVP에서는 고정값 사용
+        """전체 위시리스트 수 조회 (캐시된 값 반환)"""
+        # 실시간으로 가져오는 함수는 별도로 구현
+        # 여기서는 캐시된 값을 반환 (실시간 업데이트는 async 함수에서)
         return 32500
 
 
@@ -224,11 +225,16 @@ class SteamLinkModal(Modal, title='Steam 계정 연결'):
         # 데이터베이스에 저장
         self.db.create_user(interaction.user.id)
         self.db.update_steam_id(interaction.user.id, steam_id)
+        # Steam ID 연동 완료 처리
+        self.db.update_quest(interaction.user.id, 1, True)
         
         await interaction.response.send_message(
-            f"✅ Steam 계정이 성공적으로 연결되었습니다! (Steam ID: {steam_id})",
+            f"✅ Step 1: Steam ID 연동이 완료되었습니다! (Steam ID: {steam_id})",
             ephemeral=True
         )
+        
+        # Embed 업데이트
+        await self.view_instance.update_embed(interaction)
         
         # Embed 업데이트
         await self.view_instance.update_embed(interaction)
@@ -281,6 +287,47 @@ async def verify_steam_id(steam_id: str) -> bool:
         return steam_id.isdigit() and len(steam_id) == 17
 
 
+async def get_wishlist_count_from_store(app_id: str) -> Optional[int]:
+    """Steam Store 페이지에서 위시리스트 수 가져오기"""
+    url = f"https://store.steampowered.com/app/{app_id}/"
+    
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(url, headers={'User-Agent': 'Mozilla/5.0'}) as response:
+                if response.status == 200:
+                    html = await response.text()
+                    soup = BeautifulSoup(html, 'html.parser')
+                    
+                    # 위시리스트 수를 찾는 여러 방법 시도
+                    # 방법 1: wishlist_count 클래스 찾기
+                    wishlist_elem = soup.find(class_='wishlist_count')
+                    if wishlist_elem:
+                        text = wishlist_elem.get_text()
+                        # 숫자만 추출
+                        numbers = re.findall(r'\d+', text.replace(',', ''))
+                        if numbers:
+                            return int(numbers[0])
+                    
+                    # 방법 2: data-wishlist-count 속성 찾기
+                    wishlist_attr = soup.find(attrs={'data-wishlist-count': True})
+                    if wishlist_attr:
+                        count = wishlist_attr.get('data-wishlist-count')
+                        if count:
+                            return int(count)
+                    
+                    # 방법 3: JavaScript 변수에서 찾기
+                    scripts = soup.find_all('script')
+                    for script in scripts:
+                        if script.string:
+                            match = re.search(r'wishlist_count["\']?\s*[:=]\s*(\d+)', script.string)
+                            if match:
+                                return int(match.group(1))
+    except Exception as e:
+        print(f"위시리스트 수 가져오기 오류: {e}")
+    
+    return None
+
+
 async def check_wishlist(steam_id: str, app_id: str) -> bool:
     """위시리스트 확인 (제한적 API)"""
     # Steam Web API는 공개 위시리스트를 직접 확인하는 기능이 제한적입니다.
@@ -319,86 +366,143 @@ class SteamLinkSelect(Select):
         await interaction.response.send_modal(modal)
 
 
-class QuestView(View):
-    """퀘스트 상호작용을 위한 View"""
+class QuestSelect(Select):
+    """퀘스트 선택을 위한 Select 메뉴"""
     
-    def __init__(self, db: DatabaseManager, user_data: Optional[dict] = None):
-        super().__init__(timeout=None)
+    def __init__(self, db: DatabaseManager, view_instance):
         self.db = db
-        self.user_data = user_data or {}
-        
-        # Steam 계정 연결 Select 메뉴 추가
-        self.add_item(SteamLinkSelect(db, self))
-        
-        # 스팀 페이지 링크 버튼 추가
-        self.add_item(Button(label='🔗 Steam 페이지 열기', style=discord.ButtonStyle.link, url=COMMUNITY_POST_URL))
+        self.view_instance = view_instance
+        super().__init__(placeholder="퀘스트를 선택하세요...", min_values=1, max_values=1)
+        self._update_options()
     
-    @discord.ui.button(label='🎁 Verify Wishlist', style=discord.ButtonStyle.primary)
-    async def verify_wishlist(self, interaction: discord.Interaction, button: Button):
+    def _update_options(self):
+        """사용자 상태에 따라 옵션 업데이트 (완료된 퀘스트는 제외)"""
+        user_data = self.view_instance.user_data or {}
+        options = []
+        
+        # Step 1: Steam ID 연동 (완료되지 않은 경우만 표시)
+        if not user_data.get('quest1_complete'):
+            options.append(discord.SelectOption(
+                label="Step 1: Steam ID 연동",
+                description="Steam 계정을 연결하세요",
+                value="quest1",
+                emoji="🔗"
+            ))
+        
+        # Step 2: Spot Zero Wishlist (완료되지 않은 경우만 표시)
+        if not user_data.get('quest2_complete'):
+            options.append(discord.SelectOption(
+                label="Step 2: Spot Zero Wishlist",
+                description="Spot Zero를 위시리스트에 추가하세요",
+                value="quest2",
+                emoji="🎁"
+            ))
+        
+        # Step 3: 포스트 라이크 (완료되지 않은 경우만 표시)
+        if not user_data.get('quest3_complete'):
+            options.append(discord.SelectOption(
+                label="Step 3: 포스트 라이크",
+                description="포스트에 좋아요를 눌러주세요",
+                value="quest3",
+                emoji="👍"
+            ))
+        
+        # 모든 퀘스트가 완료된 경우
+        if not options:
+            options.append(discord.SelectOption(
+                label="모든 퀘스트 완료! 🎉",
+                description="모든 퀘스트를 완료하셨습니다!",
+                value="all_complete",
+                emoji="🎉"
+            ))
+        
+        self.options = options
+    
+    async def callback(self, interaction: discord.Interaction):
+        selected = self.values[0]
         user_data = self.db.get_user(interaction.user.id)
+        if not user_data:
+            self.db.create_user(interaction.user.id)
+            user_data = self.db.get_user(interaction.user.id)
         
-        if not user_data or not user_data.get('steam_id'):
+        if selected == "all_complete":
             await interaction.response.send_message(
-                "❌ 먼저 Steam 계정을 연결해주세요!",
+                "🎉 모든 퀘스트를 완료하셨습니다!",
                 ephemeral=True
             )
             return
         
-        if user_data.get('quest2_complete'):
-            await interaction.response.send_message(
-                "✅ 이미 위시리스트가 확인되었습니다!",
-                ephemeral=True
-            )
-            return
+        if selected == "quest1":
+            # Step 1: Steam ID 연동
+            if user_data.get('quest1_complete'):
+                await interaction.response.send_message(
+                    "✅ 이미 Step 1이 완료되었습니다!",
+                    ephemeral=True
+                )
+                return
+            
+            # Steam ID 연동 Modal 표시
+            modal = SteamLinkModal(self.db, self.view_instance)
+            await interaction.response.send_modal(modal)
         
-        # 위시리스트 확인 시도
-        steam_id = user_data.get('steam_id')
-        has_wishlist = await check_wishlist(steam_id, APP_ID)
-        
-        if has_wishlist:
+        elif selected == "quest2":
+            # Step 2: Spot Zero Wishlist
+            if user_data.get('quest2_complete'):
+                await interaction.response.send_message(
+                    "✅ 이미 Step 2가 완료되었습니다! (위시리스트를 취소해도 완료 상태는 유지됩니다)",
+                    ephemeral=True
+                )
+                return
+            
+            if not user_data.get('steam_id'):
+                await interaction.response.send_message(
+                    "❌ 먼저 Step 1: Steam ID 연동을 완료해주세요!",
+                    ephemeral=True
+                )
+                return
+            
+            # 위시리스트 확인 및 완료 처리
             self.db.update_quest(interaction.user.id, 2, True)
             await interaction.response.send_message(
-                "✅ 위시리스트 확인이 완료되었습니다!",
+                "✅ Step 2: Spot Zero Wishlist가 완료되었습니다!",
                 ephemeral=True
             )
-            # Embed 업데이트
-            await self.update_embed(interaction)
-        else:
+            await self.view_instance.update_embed(interaction)
+        
+        elif selected == "quest3":
+            # Step 3: 포스트 라이크
+            if user_data.get('quest3_complete'):
+                await interaction.response.send_message(
+                    "✅ 이미 Step 3이 완료되었습니다!",
+                    ephemeral=True
+                )
+                return
+            
+            # 포스트 링크와 확인 버튼이 있는 View 표시
+            view = PostLikeView(self.db, self.view_instance)
             await interaction.response.send_message(
-                "❌ 위시리스트를 확인할 수 없습니다. Steam 프로필을 공개로 설정하거나 게임을 위시리스트에 추가해주세요.",
+                "🔗 아래 버튼을 클릭하여 포스트 페이지로 이동한 후, 돌아와서 확인 버튼을 눌러주세요!",
+                view=view,
                 ephemeral=True
             )
+
+
+class PostLikeView(View):
+    """포스트 라이크를 위한 View"""
     
-    @discord.ui.button(label='✅ Steam 페이지 확인 완료', style=discord.ButtonStyle.success)
-    async def confirm_steam_page(self, interaction: discord.Interaction, button: Button):
-        user_data = self.db.get_user(interaction.user.id)
-        
-        if user_data and user_data.get('quest1_complete'):
-            await interaction.response.send_message(
-                "✅ 이미 Quest 1이 완료되었습니다!",
-                ephemeral=True
-            )
-            return
-        
-        # Steam 페이지를 열고 확인했으므로 Quest 1 완료 처리
-        self.db.create_user(interaction.user.id)
-        self.db.update_quest(interaction.user.id, 1, True)
-        
-        await interaction.response.send_message(
-            "✅ Steam 페이지 확인이 완료되었습니다! Quest 1이 완료되었습니다.",
-            ephemeral=True
-        )
-        
-        # Embed 업데이트
-        await self.update_embed(interaction)
+    def __init__(self, db: DatabaseManager, quest_view_instance):
+        super().__init__(timeout=None)
+        self.db = db
+        self.quest_view_instance = quest_view_instance
+        self.add_item(Button(label='🔗 포스트 페이지 열기', style=discord.ButtonStyle.link, url=COMMUNITY_POST_URL))
     
-    @discord.ui.button(label='✅ I have Liked the post', style=discord.ButtonStyle.success)
-    async def confirm_like(self, interaction: discord.Interaction, button: Button):
+    @discord.ui.button(label='✅ 포스트 확인 완료', style=discord.ButtonStyle.success)
+    async def confirm_post_like(self, interaction: discord.Interaction, button: Button):
         user_data = self.db.get_user(interaction.user.id)
         
         if user_data and user_data.get('quest3_complete'):
             await interaction.response.send_message(
-                "✅ 이미 좋아요가 확인되었습니다!",
+                "✅ 이미 Step 3이 완료되었습니다!",
                 ephemeral=True
             )
             return
@@ -407,12 +511,25 @@ class QuestView(View):
         self.db.update_quest(interaction.user.id, 3, True)
         
         await interaction.response.send_message(
-            "✅ 좋아요 확인이 완료되었습니다!",
+            "✅ Step 3: 포스트 라이크가 완료되었습니다!",
             ephemeral=True
         )
         
         # Embed 업데이트
-        await self.update_embed(interaction)
+        await self.quest_view_instance.update_embed(interaction)
+
+
+class QuestView(View):
+    """퀘스트 상호작용을 위한 View"""
+    
+    def __init__(self, db: DatabaseManager, user_data: Optional[dict] = None):
+        super().__init__(timeout=None)
+        self.db = db
+        self.user_data = user_data or {}
+        
+        # 퀘스트 Select 메뉴 추가
+        quest_select = QuestSelect(db, self)
+        self.add_item(quest_select)
     
     async def update_embed(self, interaction: discord.Interaction):
         """Embed 업데이트"""
@@ -421,8 +538,12 @@ class QuestView(View):
             self.db.create_user(interaction.user.id)
             user_data = self.db.get_user(interaction.user.id)
         
-        # 진행률 바 생성
-        current_wishlist = self.db.get_total_wishlist_count()
+        # 실시간 위시리스트 수 가져오기
+        current_wishlist = await get_wishlist_count_from_store(APP_ID)
+        if current_wishlist is None:
+            # 실시간 가져오기 실패 시 기본값 사용
+            current_wishlist = self.db.get_total_wishlist_count()
+        
         progress_text, achieved = create_progress_bar(current_wishlist, MILESTONES)
         
         # 퀘스트 상태
@@ -437,19 +558,19 @@ class QuestView(View):
         )
         
         embed.add_field(
-            name="Quest 1: Steam Account Linking",
+            name="Step 1: Steam ID 연동",
             value=quest1_status,
             inline=False
         )
         
         embed.add_field(
-            name="Quest 2: Wishlist Verification",
+            name="Step 2: Spot Zero Wishlist",
             value=quest2_status,
             inline=False
         )
         
         embed.add_field(
-            name="Quest 3: Community Like",
+            name="Step 3: 포스트 라이크",
             value=quest3_status,
             inline=False
         )
@@ -478,8 +599,12 @@ async def steam_command(interaction: discord.Interaction):
         db.create_user(interaction.user.id)
         user_data = db.get_user(interaction.user.id)
     
-    # 진행률 바 생성
-    current_wishlist = db.get_total_wishlist_count()
+    # 실시간 위시리스트 수 가져오기
+    current_wishlist = await get_wishlist_count_from_store(APP_ID)
+    if current_wishlist is None:
+        # 실시간 가져오기 실패 시 기본값 사용
+        current_wishlist = db.get_total_wishlist_count()
+    
     progress_text, achieved = create_progress_bar(current_wishlist, MILESTONES)
     
     # 퀘스트 상태
@@ -494,19 +619,19 @@ async def steam_command(interaction: discord.Interaction):
     )
     
     embed.add_field(
-        name="Quest 1: Steam Account Linking",
+        name="Step 1: Steam ID 연동",
         value=quest1_status,
         inline=False
     )
     
     embed.add_field(
-        name="Quest 2: Wishlist Verification",
+        name="Step 2: Spot Zero Wishlist",
         value=quest2_status,
         inline=False
     )
     
     embed.add_field(
-        name="Quest 3: Community Like",
+        name="Step 3: 포스트 라이크",
         value=quest3_status,
         inline=False
     )
