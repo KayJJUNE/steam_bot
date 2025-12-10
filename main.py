@@ -20,7 +20,7 @@ COMMUNITY_POST_URL = os.getenv('COMMUNITY_POST_URL', 'https://store.steampowered
 MILESTONES = [10000, 30000, 50000]  # 마일스톤: 1만, 3만, 5만
 TARGET_WISHLIST_COUNT = 50000  # 최종 목표 위시리스트 수
 WISHLIST_API_URL = os.getenv('WISHLIST_API_URL')  # 위시리스트 수를 가져올 API URL (선택사항)
-MILESTONE_REWARD_IMAGE_URL = os.getenv('MILESTONE_REWARD_IMAGE_URL', 'https://i.postimg.cc/sXzpB36f/jemog-eobsneun-dijain.png')  # 마일스톤 리워드 소개 이미지 URL
+MILESTONE_REWARD_IMAGE_URL = os.getenv('MILESTONE_REWARD_IMAGE_URL', 'https://i.postimg.cc/mk2pHYd5/Hailuo-Image-kkwagchan-imijilo-455099822323220490.jpg')  # 마일스톤 리워드 소개 이미지 URL
 REWARD_ROLE_ID = os.getenv('REWARD_ROLE_ID', '1448242630667534449')  # 모든 퀘스트 완료 시 부여할 역할 ID
 
 intents = discord.Intents.default()
@@ -233,15 +233,19 @@ class SteamLinkModal(Modal, title='Steam 계정 연결'):
         # Steam ID 연동 완료 처리
         self.db.update_quest(interaction.user.id, 1, True)
         
-        await interaction.response.send_message(
+        await interaction.response.defer(ephemeral=True)
+        
+        await interaction.followup.send(
             f"✅ Step 1: Steam ID 연동이 완료되었습니다! (Steam ID: {steam_id})",
             ephemeral=True
         )
         
-        # 모든 퀘스트 완료 확인 및 보상 역할 Embed 전송
-        await send_reward_role_embed(interaction, self.db)
+        # 모든 퀘스트 완료 확인 및 자동 롤 부여
+        await auto_assign_reward_role(interaction, self.db)
         
-        # Embed 업데이트는 하지 않음 (중복 방지 - /steam 명령어로 다시 확인 가능)
+        # Select 메뉴가 포함된 Embed 업데이트
+        if hasattr(self, 'view_instance') and self.view_instance:
+            await self.view_instance.update_embed(interaction)
 
 
 async def resolve_vanity_url(vanity_url: str) -> Optional[str]:
@@ -435,8 +439,8 @@ async def check_wishlist(steam_id: str, app_id: str) -> bool:
     return False
 
 
-async def send_reward_role_embed(interaction: discord.Interaction, db: DatabaseManager):
-    """모든 퀘스트 완료 시 보상 역할 받기 Embed 전송"""
+async def auto_assign_reward_role(interaction: discord.Interaction, db: DatabaseManager):
+    """모든 퀘스트 완료 시 자동으로 보상 역할 부여"""
     # 모든 퀘스트 완료 확인
     if not db.are_all_quests_complete(interaction.user.id):
         return False
@@ -457,26 +461,46 @@ async def send_reward_role_embed(interaction: discord.Interaction, db: DatabaseM
         print(f"역할을 찾을 수 없습니다: {role_id}")
         return False
     
-    # 보상 역할 Embed 생성
-    reward_embed = discord.Embed(
-        title="🎉 모든 퀘스트 완료!",
-        description=f"축하합니다! Spot Zero Hunter Program의 모든 퀘스트를 완료하셨습니다!\n\n"
-                   f"아래 버튼을 클릭하여 보상 역할을 받으세요: **{role.mention}**",
-        color=discord.Color.gold()
-    )
-    
-    # 롤 받기 버튼이 있는 View 생성
-    view = ClaimRoleView(db, role_id)
-    
     try:
-        await interaction.followup.send(embed=reward_embed, view=view, ephemeral=True)
-        return True
-    except:
-        try:
-            await interaction.response.send_message(embed=reward_embed, view=view, ephemeral=True)
+        # 멤버 가져오기
+        member = interaction.guild.get_member(interaction.user.id)
+        if not member:
+            member = await interaction.guild.fetch_member(interaction.user.id)
+        
+        # 이미 역할이 있는지 확인
+        if role in member.roles:
             return True
+        
+        # 역할 자동 부여
+        await member.add_roles(role, reason="Spot Zero Hunter Program 모든 퀘스트 완료")
+        
+        # 성공 메시지 전송
+        try:
+            await interaction.followup.send(
+                f"🎉 축하합니다! 모든 퀘스트를 완료하여 역할 **{role.name}**이 자동으로 지급되었습니다!",
+                ephemeral=True
+            )
         except:
-            return False
+            pass
+        
+        return True
+        
+    except discord.Forbidden:
+        print(f"역할 부여 권한이 없습니다: {role_id}")
+        # 권한이 없어도 에러 메시지는 표시하지 않음 (조용히 실패)
+        return False
+    except discord.HTTPException as e:
+        print(f"역할 부여 중 HTTP 오류: {e}")
+        return False
+    except Exception as e:
+        print(f"역할 부여 중 예외 발생: {e}")
+        return False
+
+
+async def send_reward_role_embed(interaction: discord.Interaction, db: DatabaseManager):
+    """모든 퀘스트 완료 시 보상 역할 받기 Embed 전송 (레거시 - 자동 부여로 대체됨)"""
+    # 자동 부여 시도
+    return await auto_assign_reward_role(interaction, db)
 
 
 class ClaimRoleView(View):
@@ -724,7 +748,7 @@ class QuestSelect(Select):
                 color=discord.Color.blue()
             )
             
-            view = WishlistView(self.db, self.view_instance)
+            view = WishlistView(self.db, self.view_instance, page_visited=False)
             store_url = f"https://store.steampowered.com/app/{APP_ID}/"
             
             await interaction.response.send_message(
@@ -826,10 +850,10 @@ class WishlistManualConfirmView(View):
             ephemeral=True
         )
         
-        # 모든 퀘스트 완료 확인 및 보상 역할 Embed 전송
-        await send_reward_role_embed(interaction, self.db)
+        # 모든 퀘스트 완료 확인 및 자동 롤 부여
+        await auto_assign_reward_role(interaction, self.db)
         
-        # Embed 업데이트
+        # Select 메뉴가 포함된 Embed 업데이트
         await self.quest_view_instance.update_embed(interaction)
     
     @discord.ui.button(label='🔄 다시 검증 시도', style=discord.ButtonStyle.primary)
@@ -848,6 +872,10 @@ class WishlistManualConfirmView(View):
                 ephemeral=True
             )
             
+            # 모든 퀘스트 완료 확인 및 자동 롤 부여
+            await auto_assign_reward_role(interaction, self.db)
+            
+            # Select 메뉴가 포함된 Embed 업데이트
             await self.quest_view_instance.update_embed(interaction)
         else:
             await interaction.followup.send(
@@ -860,10 +888,47 @@ class WishlistManualConfirmView(View):
 class WishlistView(View):
     """위시리스트 추가를 위한 View"""
     
-    def __init__(self, db: DatabaseManager, quest_view_instance):
+    def __init__(self, db: DatabaseManager, quest_view_instance, page_visited: bool = False):
         super().__init__(timeout=None)
         self.db = db
         self.quest_view_instance = quest_view_instance
+        self.page_visited = page_visited
+        store_url = f"https://store.steampowered.com/app/{APP_ID}/"
+        self.add_item(Button(label='🔗 Spot Zero 스토어 페이지 열기', style=discord.ButtonStyle.link, url=store_url))
+    
+    @discord.ui.button(label='✅ 스토어 페이지 방문 완료', style=discord.ButtonStyle.primary)
+    async def visited_store(self, interaction: discord.Interaction, button: Button):
+        """스토어 페이지 방문 완료 버튼 - 위시리스트 확인 버튼을 활성화"""
+        # 페이지 방문 플래그 설정
+        self.page_visited = True
+        
+        # 위시리스트 확인 버튼이 있는 새로운 View 생성
+        view = WishlistConfirmView(self.db, self.quest_view_instance, page_visited=True)
+        
+        try:
+            await interaction.response.edit_message(
+                content="✅ 스토어 페이지를 방문하셨습니다!\n\n"
+                       "이제 위시리스트에 Spot Zero를 추가한 후, 아래 '위시리스트 추가 완료' 버튼을 눌러주세요.",
+                view=view
+            )
+        except:
+            # edit_message가 실패하면 새 메시지로 전송
+            await interaction.response.send_message(
+                "✅ 스토어 페이지를 방문하셨습니다!\n\n"
+                "이제 위시리스트에 Spot Zero를 추가한 후, 아래 '위시리스트 추가 완료' 버튼을 눌러주세요.",
+                view=view,
+                ephemeral=True
+            )
+
+
+class WishlistConfirmView(View):
+    """위시리스트 확인을 위한 View"""
+    
+    def __init__(self, db: DatabaseManager, quest_view_instance, page_visited: bool = False):
+        super().__init__(timeout=None)
+        self.db = db
+        self.quest_view_instance = quest_view_instance
+        self.page_visited = page_visited
         store_url = f"https://store.steampowered.com/app/{APP_ID}/"
         self.add_item(Button(label='🔗 Spot Zero 스토어 페이지 열기', style=discord.ButtonStyle.link, url=store_url))
     
@@ -874,6 +939,17 @@ class WishlistView(View):
         if user_data and user_data.get('quest2_complete'):
             await interaction.response.send_message(
                 "✅ 이미 Step 2가 완료되었습니다!",
+                ephemeral=True
+            )
+            return
+        
+        # 페이지 방문 확인
+        if not self.page_visited:
+            await interaction.response.send_message(
+                "❌ 먼저 페이지를 이동해서 퀘스트를 완료해주세요.\n\n"
+                "1. '스토어 페이지 열기' 버튼을 클릭하여 페이지로 이동\n"
+                "2. '스토어 페이지 방문 완료' 버튼을 클릭\n"
+                "3. 그 다음 '위시리스트 추가 완료' 버튼을 클릭",
                 ephemeral=True
             )
             return
@@ -920,10 +996,10 @@ class WishlistView(View):
             ephemeral=True
         )
         
-        # 모든 퀘스트 완료 확인 및 보상 역할 Embed 전송
-        await send_reward_role_embed(interaction, self.db)
+        # 모든 퀘스트 완료 확인 및 자동 롤 부여
+        await auto_assign_reward_role(interaction, self.db)
         
-        # Embed 업데이트
+        # Select 메뉴가 포함된 Embed 업데이트
         await self.quest_view_instance.update_embed(interaction)
 
 
@@ -1017,10 +1093,10 @@ class SteamFollowConfirmView(View):
             ephemeral=True
         )
         
-        # 모든 퀘스트 완료 확인 및 보상 역할 Embed 전송
-        await send_reward_role_embed(interaction, self.db)
+        # 모든 퀘스트 완료 확인 및 자동 롤 부여
+        await auto_assign_reward_role(interaction, self.db)
         
-        # Embed 업데이트
+        # Select 메뉴가 포함된 Embed 업데이트
         await self.quest_view_instance.update_embed(interaction)
 
 
@@ -1111,10 +1187,10 @@ class PostLikeConfirmView(View):
             ephemeral=True
         )
         
-        # 모든 퀘스트 완료 확인 및 보상 역할 Embed 전송
-        await send_reward_role_embed(interaction, self.db)
+        # 모든 퀘스트 완료 확인 및 자동 롤 부여
+        await auto_assign_reward_role(interaction, self.db)
         
-        # Embed 업데이트
+        # Select 메뉴가 포함된 Embed 업데이트
         await self.quest_view_instance.update_embed(interaction)
 
 
@@ -1137,14 +1213,6 @@ class QuestView(View):
             self.db.create_user(interaction.user.id)
             user_data = self.db.get_user(interaction.user.id)
         
-        # 실시간 위시리스트 수 가져오기
-        current_wishlist = await get_wishlist_count_from_store(APP_ID)
-        if current_wishlist is None:
-            # 실시간 가져오기 실패 시 기본값 사용
-            current_wishlist = self.db.get_total_wishlist_count()
-        
-        progress_text, achieved = create_progress_bar(current_wishlist, MILESTONES)
-        
         # 퀘스트 상태
         quest1_status = "✅ Complete" if user_data.get('quest1_complete') else "❌ Incomplete"
         quest2_status = "✅ Complete" if user_data.get('quest2_complete') else "❌ Incomplete"
@@ -1153,7 +1221,7 @@ class QuestView(View):
         
         embed = discord.Embed(
             title="🎮 Welcome to Spot Zero Hunter Program",
-            description=f"**📊 Wishlist Milestone**\n\n{progress_text}",
+            description="해당 퀘스트를 완료하면 디스코드 특수롤을 받을 수 있습니다.\n특수롤을 받은 모험가분들은 별도의 보상이 됩니다. (리워드 추후 공개)",
             color=discord.Color.blue()
         )
         
@@ -1209,14 +1277,6 @@ async def steam_command(interaction: discord.Interaction):
         db.create_user(interaction.user.id)
         user_data = db.get_user(interaction.user.id)
     
-    # 실시간 위시리스트 수 가져오기
-    current_wishlist = await get_wishlist_count_from_store(APP_ID)
-    if current_wishlist is None:
-        # 실시간 가져오기 실패 시 기본값 사용
-        current_wishlist = db.get_total_wishlist_count()
-    
-    progress_text, achieved = create_progress_bar(current_wishlist, MILESTONES)
-    
     # 퀘스트 상태
     quest1_status = "✅ Complete" if user_data.get('quest1_complete') else "❌ Incomplete"
     quest2_status = "✅ Complete" if user_data.get('quest2_complete') else "❌ Incomplete"
@@ -1225,7 +1285,7 @@ async def steam_command(interaction: discord.Interaction):
     
     embed = discord.Embed(
         title="🎮 Welcome to Spot Zero Hunter Program",
-        description=f"**📊 Wishlist Milestone**\n\n{progress_text}",
+        description="해당 퀘스트를 완료하면 디스코드 특수롤을 받을 수 있습니다.\n특수롤을 받은 모험가분들은 별도의 보상이 됩니다. (리워드 추후 공개)",
         color=discord.Color.blue()
     )
     
