@@ -635,6 +635,64 @@ class QuestSelect(Select):
             )
 
 
+class WishlistManualConfirmView(View):
+    """위시리스트 수동 확인을 위한 View"""
+    
+    def __init__(self, db: DatabaseManager, quest_view_instance, steam_id: str):
+        super().__init__(timeout=300)  # 5분 타임아웃
+        self.db = db
+        self.quest_view_instance = quest_view_instance
+        self.steam_id = steam_id
+    
+    @discord.ui.button(label='✅ 수동 확인 (위시리스트에 추가함)', style=discord.ButtonStyle.success)
+    async def manual_confirm(self, interaction: discord.Interaction, button: Button):
+        user_data = self.db.get_user(interaction.user.id)
+        
+        if user_data and user_data.get('quest2_complete'):
+            await interaction.response.send_message(
+                "✅ 이미 Step 2가 완료되었습니다!",
+                ephemeral=True
+            )
+            return
+        
+        # 수동 확인 - 완료 처리
+        self.db.create_user(interaction.user.id)
+        self.db.update_quest(interaction.user.id, 2, True)
+        
+        await interaction.response.send_message(
+            "✅ Step 2: Spot Zero Wishlist가 완료되었습니다!\n\n"
+            "수동 확인으로 처리되었습니다.",
+            ephemeral=True
+        )
+        
+        # Embed 업데이트
+        await self.quest_view_instance.update_embed(interaction)
+    
+    @discord.ui.button(label='🔄 다시 검증 시도', style=discord.ButtonStyle.primary)
+    async def retry_verification(self, interaction: discord.Interaction, button: Button):
+        await interaction.response.defer(ephemeral=True)
+        
+        # 재검증 시도
+        has_wishlist = await check_wishlist(self.steam_id, APP_ID)
+        
+        if has_wishlist:
+            self.db.create_user(interaction.user.id)
+            self.db.update_quest(interaction.user.id, 2, True)
+            
+            await interaction.followup.send(
+                "✅ 검증 성공! Step 2: Spot Zero Wishlist가 완료되었습니다!",
+                ephemeral=True
+            )
+            
+            await self.quest_view_instance.update_embed(interaction)
+        else:
+            await interaction.followup.send(
+                "❌ 여전히 검증에 실패했습니다.\n\n"
+                "위시리스트에 추가하셨다면 '수동 확인' 버튼을 사용해주세요.",
+                ephemeral=True
+            )
+
+
 class WishlistView(View):
     """위시리스트 추가를 위한 View"""
     
