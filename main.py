@@ -244,8 +244,25 @@ class SteamLinkModal(Modal, title='Steam 계정 연결'):
         await auto_assign_reward_role(interaction, self.db)
         
         # Select 메뉴가 포함된 Embed 업데이트
-        if hasattr(self, 'view_instance') and self.view_instance:
-            await self.view_instance.update_embed(interaction)
+        try:
+            if hasattr(self, 'view_instance') and self.view_instance:
+                await self.view_instance.update_embed(interaction)
+        except Exception as e:
+            print(f"update_embed 오류 (Step 1): {e}")
+            # 오류 발생 시 새로운 Embed 전송
+            try:
+                user_data = self.db.get_user(interaction.user.id)
+                embed = discord.Embed(
+                    title="🎮 Welcome to Spot Zero Hunter Program",
+                    description="해당 퀘스트를 완료하면 디스코드 특수롤을 받을 수 있습니다.\n특수롤을 받은 모험가분들은 별도의 보상이 됩니다. (리워드 추후 공개)",
+                    color=discord.Color.blue()
+                )
+                if MILESTONE_REWARD_IMAGE_URL:
+                    embed.set_image(url=MILESTONE_REWARD_IMAGE_URL)
+                view = QuestView(self.db, user_data)
+                await interaction.followup.send(embed=embed, view=view, ephemeral=True)
+            except:
+                pass
 
 
 async def resolve_vanity_url(vanity_url: str) -> Optional[str]:
@@ -474,26 +491,34 @@ async def auto_assign_reward_role(interaction: discord.Interaction, db: Database
         # 역할 자동 부여
         await member.add_roles(role, reason="Spot Zero Hunter Program 모든 퀘스트 완료")
         
-        # 성공 메시지 전송
+        # 성공 메시지 전송 (defer가 이미 호출되었는지 확인)
         try:
-            await interaction.followup.send(
-                f"🎉 축하합니다! 모든 퀘스트를 완료하여 역할 **{role.name}**이 자동으로 지급되었습니다!",
-                ephemeral=True
-            )
-        except:
-            pass
+            # followup이 가능한지 확인
+            if interaction.response.is_done():
+                await interaction.followup.send(
+                    f"🎉 축하합니다! 모든 퀘스트를 완료하여 역할 **{role.name}**이 자동으로 지급되었습니다!",
+                    ephemeral=True
+                )
+            else:
+                await interaction.response.send_message(
+                    f"🎉 축하합니다! 모든 퀘스트를 완료하여 역할 **{role.name}**이 자동으로 지급되었습니다!",
+                    ephemeral=True
+                )
+        except Exception as e:
+            print(f"롤 부여 성공 메시지 전송 실패: {e}")
         
         return True
         
     except discord.Forbidden:
         print(f"역할 부여 권한이 없습니다: {role_id}")
-        # 권한이 없어도 에러 메시지는 표시하지 않음 (조용히 실패)
         return False
     except discord.HTTPException as e:
         print(f"역할 부여 중 HTTP 오류: {e}")
         return False
     except Exception as e:
         print(f"역할 부여 중 예외 발생: {e}")
+        import traceback
+        traceback.print_exc()
         return False
 
 
@@ -844,7 +869,9 @@ class WishlistManualConfirmView(View):
         self.db.create_user(interaction.user.id)
         self.db.update_quest(interaction.user.id, 2, True)
         
-        await interaction.response.send_message(
+        await interaction.response.defer(ephemeral=True)
+        
+        await interaction.followup.send(
             "✅ Step 2: Spot Zero Wishlist가 완료되었습니다!\n\n"
             "수동 확인으로 처리되었습니다.",
             ephemeral=True
@@ -854,7 +881,10 @@ class WishlistManualConfirmView(View):
         await auto_assign_reward_role(interaction, self.db)
         
         # Select 메뉴가 포함된 Embed 업데이트
-        await self.quest_view_instance.update_embed(interaction)
+        try:
+            await self.quest_view_instance.update_embed(interaction)
+        except Exception as e:
+            print(f"update_embed 오류 (Step 2 수동 확인): {e}")
     
     @discord.ui.button(label='🔄 다시 검증 시도', style=discord.ButtonStyle.primary)
     async def retry_verification(self, interaction: discord.Interaction, button: Button):
@@ -1257,13 +1287,24 @@ class QuestView(View):
         view = QuestView(self.db, user_data)
         
         try:
-            await interaction.followup.send(embed=embed, view=view, ephemeral=True)
-        except:
-            # followup이 실패하면 edit 시도
+            # followup이 가능한지 확인
+            if interaction.response.is_done():
+                await interaction.followup.send(embed=embed, view=view, ephemeral=True)
+            else:
+                await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
+        except Exception as e:
+            print(f"update_embed 메시지 전송 오류: {e}")
+            # edit 시도
             try:
                 await interaction.edit_original_response(embed=embed, view=view)
-            except:
-                pass
+            except Exception as e2:
+                print(f"update_embed edit 오류: {e2}")
+                # 최후의 수단: 새 메시지로 전송
+                try:
+                    if hasattr(interaction, 'channel') and interaction.channel:
+                        await interaction.channel.send(embed=embed, view=view)
+                except:
+                    pass
 
 
 @tree.command(name='steam', description='Spot Zero Hunter Program 시작하기')
