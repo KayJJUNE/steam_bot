@@ -19,7 +19,7 @@ APP_ID = os.getenv('APP_ID', '123456')  # 기본값, 실제 App ID로 변경 필
 COMMUNITY_POST_URL = os.getenv('COMMUNITY_POST_URL', 'https://store.steampowered.com/news/app/3966570/view/515228475882209343?l=english')
 MILESTONES = [10000, 30000, 50000]  # 마일스톤: 1만, 3만, 5만
 TARGET_WISHLIST_COUNT = 50000  # 최종 목표 위시리스트 수
-REWARD_ROLE_ID = os.getenv('REWARD_ROLE_ID')  # 모든 퀘스트 완료 시 부여할 역할 ID
+REWARD_ROLE_ID = os.getenv('REWARD_ROLE_ID', '1448242630667534449')  # 모든 퀘스트 완료 시 부여할 역할 ID
 
 intents = discord.Intents.default()
 # message_content intent는 슬래시 명령어만 사용하므로 필요 없음
@@ -238,14 +238,13 @@ class SteamLinkModal(Modal, title='Steam 계정 연결'):
         # Steam ID 연동 완료 처리
         self.db.update_quest(interaction.user.id, 1, True)
         
-        # 모든 퀘스트 완료 확인 및 역할 부여
-        role_assigned = await assign_reward_role(interaction, self.db)
-        role_message = "\n\n🎉 모든 퀘스트를 완료하셨습니다! 보상 역할이 부여되었습니다!" if role_assigned else ""
-        
         await interaction.response.send_message(
-            f"✅ Step 1: Steam ID 연동이 완료되었습니다! (Steam ID: {steam_id}){role_message}",
+            f"✅ Step 1: Steam ID 연동이 완료되었습니다! (Steam ID: {steam_id})",
             ephemeral=True
         )
+        
+        # 모든 퀘스트 완료 확인 및 보상 역할 Embed 전송
+        await send_reward_role_embed(interaction, self.db)
         
         # Embed 업데이트는 하지 않음 (중복 방지 - /steam 명령어로 다시 확인 가능)
 
@@ -397,17 +396,8 @@ async def check_wishlist(steam_id: str, app_id: str) -> bool:
     return False
 
 
-async def assign_reward_role(interaction: discord.Interaction, db: DatabaseManager) -> bool:
-    """모든 퀘스트 완료 시 보상 역할 부여"""
-    if not REWARD_ROLE_ID:
-        return False
-    
-    try:
-        role_id = int(REWARD_ROLE_ID)
-    except (ValueError, TypeError):
-        print(f"잘못된 역할 ID: {REWARD_ROLE_ID}")
-        return False
-    
+async def send_reward_role_embed(interaction: discord.Interaction, db: DatabaseManager):
+    """모든 퀘스트 완료 시 보상 역할 받기 Embed 전송"""
     # 모든 퀘스트 완료 확인
     if not db.are_all_quests_complete(interaction.user.id):
         return False
@@ -417,36 +407,112 @@ async def assign_reward_role(interaction: discord.Interaction, db: DatabaseManag
         return False
     
     try:
-        # 역할 가져오기
-        role = interaction.guild.get_role(role_id)
-        if not role:
-            print(f"역할을 찾을 수 없습니다: {role_id}")
-            return False
-        
-        # 멤버 가져오기
-        member = interaction.guild.get_member(interaction.user.id)
-        if not member:
-            # 멤버를 찾을 수 없으면 fetch 시도
-            member = await interaction.guild.fetch_member(interaction.user.id)
-        
-        # 이미 역할이 있는지 확인
-        if role in member.roles:
-            return True  # 이미 역할이 있음
-        
-        # 역할 부여
-        await member.add_roles(role, reason="Spot Zero Hunter Program 모든 퀘스트 완료")
-        print(f"역할 부여 성공: {member.display_name} -> {role.name}")
+        role_id = int(REWARD_ROLE_ID)
+    except (ValueError, TypeError):
+        print(f"잘못된 역할 ID: {REWARD_ROLE_ID}")
+        return False
+    
+    # 역할 가져오기
+    role = interaction.guild.get_role(role_id)
+    if not role:
+        print(f"역할을 찾을 수 없습니다: {role_id}")
+        return False
+    
+    # 보상 역할 Embed 생성
+    reward_embed = discord.Embed(
+        title="🎉 모든 퀘스트 완료!",
+        description=f"축하합니다! Spot Zero Hunter Program의 모든 퀘스트를 완료하셨습니다!\n\n"
+                   f"아래 버튼을 클릭하여 보상 역할을 받으세요: **{role.mention}**",
+        color=discord.Color.gold()
+    )
+    
+    # 롤 받기 버튼이 있는 View 생성
+    view = ClaimRoleView(db, role_id)
+    
+    try:
+        await interaction.followup.send(embed=reward_embed, view=view, ephemeral=True)
         return True
+    except:
+        try:
+            await interaction.response.send_message(embed=reward_embed, view=view, ephemeral=True)
+            return True
+        except:
+            return False
+
+
+class ClaimRoleView(View):
+    """보상 역할 받기를 위한 View"""
+    
+    def __init__(self, db: DatabaseManager, role_id: int):
+        super().__init__(timeout=None)
+        self.db = db
+        self.role_id = role_id
+    
+    @discord.ui.button(label='🎁 롤 받기 (Claim Role)', style=discord.ButtonStyle.success)
+    async def claim_role(self, interaction: discord.Interaction, button: Button):
+        # 모든 퀘스트 완료 확인
+        if not self.db.are_all_quests_complete(interaction.user.id):
+            await interaction.response.send_message(
+                "❌ 모든 퀘스트를 완료해야 역할을 받을 수 있습니다!",
+                ephemeral=True
+            )
+            return
         
-    except discord.Forbidden:
-        print(f"역할 부여 권한이 없습니다. 역할 ID: {role_id}")
-        return False
-    except discord.HTTPException as e:
-        print(f"역할 부여 오류: {e}")
-        return False
-    except Exception as e:
-        print(f"역할 부여 중 예외 발생: {e}")
-        return False
+        # Guild 확인
+        if not interaction.guild:
+            await interaction.response.send_message(
+                "❌ 서버에서만 역할을 받을 수 있습니다!",
+                ephemeral=True
+            )
+            return
+        
+        try:
+            # 역할 가져오기
+            role = interaction.guild.get_role(self.role_id)
+            if not role:
+                await interaction.response.send_message(
+                    "❌ 역할을 찾을 수 없습니다. 관리자에게 문의해주세요.",
+                    ephemeral=True
+                )
+                return
+            
+            # 멤버 가져오기
+            member = interaction.guild.get_member(interaction.user.id)
+            if not member:
+                member = await interaction.guild.fetch_member(interaction.user.id)
+            
+            # 이미 역할이 있는지 확인
+            if role in member.roles:
+                await interaction.response.send_message(
+                    "✅ 이미 역할을 획득했습니다!",
+                    ephemeral=True
+                )
+                return
+            
+            # 역할 부여
+            await member.add_roles(role, reason="Spot Zero Hunter Program 모든 퀘스트 완료")
+            
+            await interaction.response.send_message(
+                "🎉 축하합니다! 역할이 지급되었습니다!",
+                ephemeral=True
+            )
+            
+        except discord.Forbidden:
+            await interaction.response.send_message(
+                "❌ 역할 부여 권한이 없습니다. 관리자에게 문의해주세요.",
+                ephemeral=True
+            )
+        except discord.HTTPException as e:
+            await interaction.response.send_message(
+                f"❌ 역할 부여 중 오류가 발생했습니다: {e}",
+                ephemeral=True
+            )
+        except Exception as e:
+            print(f"역할 부여 중 예외 발생: {e}")
+            await interaction.response.send_message(
+                "❌ 역할 부여 중 오류가 발생했습니다. 관리자에게 문의해주세요.",
+                ephemeral=True
+            )
 
 
 class SteamLinkGuideView(View):
@@ -715,15 +781,14 @@ class WishlistManualConfirmView(View):
         self.db.create_user(interaction.user.id)
         self.db.update_quest(interaction.user.id, 2, True)
         
-        # 모든 퀘스트 완료 확인 및 역할 부여
-        role_assigned = await assign_reward_role(interaction, self.db)
-        role_message = "\n\n🎉 모든 퀘스트를 완료하셨습니다! 보상 역할이 부여되었습니다!" if role_assigned else ""
-        
         await interaction.response.send_message(
-            f"✅ Step 2: Spot Zero Wishlist가 완료되었습니다!\n\n"
-            f"수동 확인으로 처리되었습니다.{role_message}",
+            "✅ Step 2: Spot Zero Wishlist가 완료되었습니다!\n\n"
+            "수동 확인으로 처리되었습니다.",
             ephemeral=True
         )
+        
+        # 모든 퀘스트 완료 확인 및 보상 역할 Embed 전송
+        await send_reward_role_embed(interaction, self.db)
         
         # Embed 업데이트
         await self.quest_view_instance.update_embed(interaction)
@@ -811,14 +876,13 @@ class WishlistView(View):
         self.db.create_user(interaction.user.id)
         self.db.update_quest(interaction.user.id, 2, True)
         
-        # 모든 퀘스트 완료 확인 및 역할 부여
-        role_assigned = await assign_reward_role(interaction, self.db)
-        role_message = "\n\n🎉 모든 퀘스트를 완료하셨습니다! 보상 역할이 부여되었습니다!" if role_assigned else ""
-        
         await interaction.followup.send(
-            f"✅ Step 2: Spot Zero Wishlist가 완료되었습니다!{role_message}",
+            "✅ Step 2: Spot Zero Wishlist가 완료되었습니다!",
             ephemeral=True
         )
+        
+        # 모든 퀘스트 완료 확인 및 보상 역할 Embed 전송
+        await send_reward_role_embed(interaction, self.db)
         
         # Embed 업데이트
         await self.quest_view_instance.update_embed(interaction)
@@ -898,14 +962,13 @@ class SteamFollowConfirmView(View):
         self.db.create_user(interaction.user.id)
         self.db.update_quest(interaction.user.id, 3, True)
         
-        # 모든 퀘스트 완료 확인 및 역할 부여
-        role_assigned = await assign_reward_role(interaction, self.db)
-        role_message = "\n\n🎉 모든 퀘스트를 완료하셨습니다! 보상 역할이 부여되었습니다!" if role_assigned else ""
-        
         await interaction.response.send_message(
-            f"✅ Step 3: Spot Zero Steam page follow가 완료되었습니다!{role_message}",
+            "✅ Step 3: Spot Zero Steam page follow가 완료되었습니다!",
             ephemeral=True
         )
+        
+        # 모든 퀘스트 완료 확인 및 보상 역할 Embed 전송
+        await send_reward_role_embed(interaction, self.db)
         
         # Embed 업데이트
         await self.quest_view_instance.update_embed(interaction)
@@ -982,14 +1045,13 @@ class PostLikeConfirmView(View):
         self.db.create_user(interaction.user.id)
         self.db.update_quest(interaction.user.id, 4, True)
         
-        # 모든 퀘스트 완료 확인 및 역할 부여
-        role_assigned = await assign_reward_role(interaction, self.db)
-        role_message = "\n\n🎉 모든 퀘스트를 완료하셨습니다! 보상 역할이 부여되었습니다!" if role_assigned else ""
-        
         await interaction.response.send_message(
-            f"✅ Step 4: 포스트 라이크가 완료되었습니다!{role_message}",
+            "✅ Step 4: 포스트 라이크가 완료되었습니다!",
             ephemeral=True
         )
+        
+        # 모든 퀘스트 완료 확인 및 보상 역할 Embed 전송
+        await send_reward_role_embed(interaction, self.db)
         
         # Embed 업데이트
         await self.quest_view_instance.update_embed(interaction)
