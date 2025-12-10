@@ -20,6 +20,7 @@ COMMUNITY_POST_URL = os.getenv('COMMUNITY_POST_URL', 'https://store.steampowered
 MILESTONES = [10000, 30000, 50000]  # 마일스톤: 1만, 3만, 5만
 TARGET_WISHLIST_COUNT = 50000  # 최종 목표 위시리스트 수
 WISHLIST_API_URL = os.getenv('WISHLIST_API_URL')  # 위시리스트 수를 가져올 API URL (선택사항)
+MILESTONE_REWARD_IMAGE_URL = os.getenv('MILESTONE_REWARD_IMAGE_URL')  # 마일스톤 리워드 소개 이미지 URL
 REWARD_ROLE_ID = os.getenv('REWARD_ROLE_ID', '1448242630667534449')  # 모든 퀘스트 완료 시 부여할 역할 ID
 
 intents = discord.Intents.default()
@@ -165,15 +166,8 @@ def create_progress_bar(current: int, milestones: list, length: int = 20) -> tup
     filled = int((total_percentage / 100) * length)
     bar = "🟩" * filled + "⬜" * (length - filled)
     
-    # 마일스톤 텍스트 생성
-    milestone_text = ""
-    for milestone in milestones:
-        if milestone in achieved_milestones:
-            milestone_text += f"✅ **{milestone//10000}만** "
-        else:
-            milestone_text += f"⚪ {milestone//10000}만 "
-    
-    progress_text = f"{bar}\n**{current:,}** / {milestones[-1]:,} ({total_percentage:.1f}% 달성)\n\n{milestone_text.strip()}"
+    # 마일스톤 텍스트는 제거 (이미지로 대체)
+    progress_text = f"{bar}\n**{current:,}** / {milestones[-1]:,} ({total_percentage:.1f}% 달성)"
     
     return progress_text, achieved_milestones
 
@@ -1230,6 +1224,10 @@ async def steam_command(interaction: discord.Interaction):
         description=f"**📊 Wishlist Milestone**\n\n{progress_text}",
         color=discord.Color.blue()
     )
+    
+    # 마일스톤 리워드 이미지 추가
+    if MILESTONE_REWARD_IMAGE_URL:
+        embed.set_image(url=MILESTONE_REWARD_IMAGE_URL)
     
     embed.add_field(
         name="Step 1: Steam ID 연동",
