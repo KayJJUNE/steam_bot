@@ -16,7 +16,7 @@ load_dotenv()
 DISCORD_TOKEN = os.getenv('DISCORD_TOKEN')
 STEAM_API_KEY = os.getenv('STEAM_API_KEY')
 APP_ID = os.getenv('APP_ID', '123456')  # 기본값, 실제 App ID로 변경 필요
-COMMUNITY_POST_URL = os.getenv('COMMUNITY_POST_URL', f'https://store.steampowered.com/app/{APP_ID}/Spot_Zero/')
+COMMUNITY_POST_URL = os.getenv('COMMUNITY_POST_URL', 'https://store.steampowered.com/news/app/3966570/view/515228475882209343?l=english')
 MILESTONES = [10000, 30000, 50000]  # 마일스톤: 1만, 3만, 5만
 TARGET_WISHLIST_COUNT = 50000  # 최종 목표 위시리스트 수
 
@@ -810,8 +810,7 @@ class PostLikeView(View):
         super().__init__(timeout=None)
         self.db = db
         self.quest_view_instance = quest_view_instance
-        store_url = f"https://store.steampowered.com/app/{APP_ID}/Spot_Zero/"
-        self.add_item(Button(label='🔗 포스트 페이지 열기', style=discord.ButtonStyle.link, url=store_url))
+        self.add_item(Button(label='🔗 포스트 페이지 열기', style=discord.ButtonStyle.link, url=COMMUNITY_POST_URL))
     
     @discord.ui.button(label='✅ 포스트 확인 완료', style=discord.ButtonStyle.success)
     async def confirm_post_like(self, interaction: discord.Interaction, button: Button):
