@@ -673,17 +673,18 @@ class WishlistView(View):
         has_wishlist = await check_wishlist(steam_id, APP_ID)
         
         if not has_wishlist:
-            # 검증 실패 시 사용자에게 더 자세한 안내 제공
+            # 검증 실패 시 수동 확인 옵션 제공
+            view = WishlistManualConfirmView(self.db, self.quest_view_instance, steam_id)
             await interaction.followup.send(
-                "❌ 위시리스트에 Spot Zero가 추가되지 않았습니다.\n\n"
+                "❌ 자동 검증에 실패했습니다.\n\n"
                 "**다음을 확인해주세요:**\n"
                 "1. Steam 프로필이 공개로 설정되어 있는지 확인\n"
                 "   → [프로필 설정 링크](https://steamcommunity.com/my/edit/settings)\n"
                 "2. 위시리스트에 Spot Zero를 추가했는지 확인\n"
-                "   → [Spot Zero 스토어 페이지](https://store.steampowered.com/app/3966570/)\n"
-                "3. 위시리스트 추가 후 몇 분 정도 기다린 후 다시 시도해주세요\n"
-                "4. Steam 프로필 URL이 올바른지 확인\n\n"
-                "**참고**: Steam API가 프로필을 인식하는데 시간이 걸릴 수 있습니다.",
+                "   → [Spot Zero 스토어 페이지](https://store.steampowered.com/app/3966570/)\n\n"
+                "**위시리스트에 추가하셨다면**, 아래 '수동 확인' 버튼을 클릭해주세요.\n"
+                "Steam API가 프로필을 인식하는데 시간이 걸릴 수 있습니다.",
+                view=view,
                 ephemeral=True
             )
             return
