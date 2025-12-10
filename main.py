@@ -461,13 +461,14 @@ class QuestSelect(Select):
                 )
                 return
             
-            # 위시리스트 확인 및 완료 처리
-            self.db.update_quest(interaction.user.id, 2, True)
+            # 위시리스트 페이지 링크와 확인 버튼이 있는 View 표시
+            view = WishlistView(self.db, self.view_instance)
+            store_url = f"https://store.steampowered.com/app/{APP_ID}/"
             await interaction.response.send_message(
-                "✅ Step 2: Spot Zero Wishlist가 완료되었습니다!",
+                f"🔗 아래 버튼을 클릭하여 Spot Zero 스토어 페이지로 이동한 후, 위시리스트에 추가하고 돌아와서 확인 버튼을 눌러주세요!\n\n{store_url}",
+                view=view,
                 ephemeral=True
             )
-            await self.view_instance.update_embed(interaction)
         
         elif selected == "quest3":
             # Step 3: 포스트 라이크
@@ -485,6 +486,39 @@ class QuestSelect(Select):
                 view=view,
                 ephemeral=True
             )
+
+
+class WishlistView(View):
+    """위시리스트 추가를 위한 View"""
+    
+    def __init__(self, db: DatabaseManager, quest_view_instance):
+        super().__init__(timeout=None)
+        self.db = db
+        self.quest_view_instance = quest_view_instance
+        store_url = f"https://store.steampowered.com/app/{APP_ID}/"
+        self.add_item(Button(label='🔗 Spot Zero 스토어 페이지 열기', style=discord.ButtonStyle.link, url=store_url))
+    
+    @discord.ui.button(label='✅ 위시리스트 추가 완료', style=discord.ButtonStyle.success)
+    async def confirm_wishlist(self, interaction: discord.Interaction, button: Button):
+        user_data = self.db.get_user(interaction.user.id)
+        
+        if user_data and user_data.get('quest2_complete'):
+            await interaction.response.send_message(
+                "✅ 이미 Step 2가 완료되었습니다!",
+                ephemeral=True
+            )
+            return
+        
+        self.db.create_user(interaction.user.id)
+        self.db.update_quest(interaction.user.id, 2, True)
+        
+        await interaction.response.send_message(
+            "✅ Step 2: Spot Zero Wishlist가 완료되었습니다!",
+            ephemeral=True
+        )
+        
+        # Embed 업데이트
+        await self.quest_view_instance.update_embed(interaction)
 
 
 class PostLikeView(View):
