@@ -260,6 +260,9 @@ class QuestView(View):
         super().__init__(timeout=None)
         self.db = db
         self.user_data = user_data or {}
+        
+        # 링크 버튼은 __init__에서 직접 추가해야 함
+        self.add_item(Button(label='👍 Like & Comment', style=discord.ButtonStyle.link, url=COMMUNITY_POST_URL))
     
     @discord.ui.button(label='🔗 Link Steam ID', style=discord.ButtonStyle.primary)
     async def link_steam(self, interaction: discord.Interaction, button: Button):
@@ -309,11 +312,6 @@ class QuestView(View):
                 "❌ 위시리스트를 확인할 수 없습니다. Steam 프로필을 공개로 설정하거나 게임을 위시리스트에 추가해주세요.",
                 ephemeral=True
             )
-    
-    @discord.ui.button(label='👍 Like & Comment', style=discord.ButtonStyle.link, url=COMMUNITY_POST_URL)
-    async def like_comment_link(self, interaction: discord.Interaction, button: Button):
-        # 링크 버튼은 자동으로 열리므로 여기서는 처리하지 않음
-        pass
     
     @discord.ui.button(label='✅ I have Liked the post', style=discord.ButtonStyle.success)
     async def confirm_like(self, interaction: discord.Interaction, button: Button):
