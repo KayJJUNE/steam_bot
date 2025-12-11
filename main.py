@@ -107,11 +107,24 @@ class DatabaseManager:
             ''')
             
             # 기존 테이블에 quest4_complete 컬럼 추가 (마이그레이션)
-            try:
-                await conn.execute('ALTER TABLE users ADD COLUMN quest4_complete INTEGER DEFAULT 0')
-            except asyncpg.exceptions.DuplicateColumnError:
-                # 컬럼이 이미 존재하는 경우 무시
-                pass
+            # 컬럼이 이미 존재하는지 확인 후 추가
+            column_exists = await conn.fetchval('''
+                SELECT EXISTS (
+                    SELECT 1 
+                    FROM information_schema.columns 
+                    WHERE table_name = 'users' 
+                    AND column_name = 'quest4_complete'
+                )
+            ''')
+            
+            if not column_exists:
+                try:
+                    await conn.execute('ALTER TABLE users ADD COLUMN quest4_complete INTEGER DEFAULT 0')
+                except Exception as e:
+                    # 컬럼 추가 실패 시 로그만 출력 (이미 존재할 수 있음)
+                    debug_mode = os.getenv('DEBUG', 'False').lower() == 'true'
+                    if debug_mode:
+                        print(f"[DB] Could not add quest4_complete column: {e}")
     
     async def get_user(self, discord_id: int) -> Optional[dict]:
         """사용자 정보 조회"""
