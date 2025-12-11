@@ -267,7 +267,7 @@ class SteamLinkModal(Modal, title='Link Steam Account'):
             try:
                 user_data = self.db.get_user(interaction.user.id)
                 embed = discord.Embed(
-                    title="🎮 Welcome to Spot Zero Hunter Program",
+                    title="🎮 Steam Code SZ Program",
                     description="Complete these quests to receive a special Discord role.\nAdventurers who receive the special role will get additional rewards. (Rewards to be announced)",
                     color=discord.Color.blue()
                 )
@@ -1366,7 +1366,7 @@ class QuestView(View):
         quest4_status = "✅ Complete" if user_data.get('quest4_complete') else "❌ Incomplete"
         
         embed = discord.Embed(
-            title="🎮 Welcome to Spot Zero Hunter Program",
+            title="🎮 Steam Code SZ Program",
             description="Complete these quests to receive a special Discord role.\nAdventurers who receive the special role will get additional rewards. (Rewards to be announced)",
             color=discord.Color.blue()
         )
@@ -1448,7 +1448,7 @@ async def steam_command(interaction: discord.Interaction):
     quest4_status = "✅ Complete" if user_data.get('quest4_complete') else "❌ Incomplete"
     
     embed = discord.Embed(
-        title="🎮 Welcome to Spot Zero Hunter Program",
+        title="🎮 Steam Code SZ Program",
         description="Complete these quests to receive a special Discord role.\nAdventurers who receive the special role will get additional rewards. (Rewards to be announced)",
         color=discord.Color.blue()
     )
