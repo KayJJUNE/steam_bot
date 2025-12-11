@@ -2,12 +2,13 @@ import discord
 from discord import app_commands
 from discord.ui import Button, View, Modal, TextInput, Select
 import aiohttp
-import sqlite3
 import os
 import re
 from typing import Optional
 from dotenv import load_dotenv
 from bs4 import BeautifulSoup
+import asyncpg
+from urllib.parse import urlparse
 
 # 환경 변수 로드
 load_dotenv()
@@ -30,99 +31,97 @@ tree = app_commands.CommandTree(bot)
 
 
 class DatabaseManager:
-    """SQLite 데이터베이스 관리 클래스"""
+    """PostgreSQL 데이터베이스 관리 클래스"""
     
-    def __init__(self, db_name: str = 'user_data.db'):
-        self.db_name = db_name
-        self.init_database()
+    def __init__(self):
+        self.pool = None
+        self._init_task = None
     
-    def init_database(self):
+    async def _get_pool(self):
+        """데이터베이스 연결 풀 가져오기 (초기화)"""
+        if self.pool is None:
+            # DATABASE_URL 환경 변수에서 연결 정보 가져오기
+            database_url = os.getenv('DATABASE_URL')
+            if not database_url:
+                raise ValueError("DATABASE_URL environment variable is not set")
+            
+            # Railway PostgreSQL URL 형식: postgresql://user:password@host:port/database
+            # asyncpg는 postgresql:// 대신 postgres://를 사용할 수도 있음
+            if database_url.startswith('postgresql://'):
+                database_url = database_url.replace('postgresql://', 'postgres://', 1)
+            
+            self.pool = await asyncpg.create_pool(database_url, min_size=1, max_size=10)
+            await self.init_database()
+        return self.pool
+    
+    async def init_database(self):
         """데이터베이스 초기화 및 테이블 생성"""
-        conn = sqlite3.connect(self.db_name)
-        cursor = conn.cursor()
-        
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS users (
-                discord_id INTEGER PRIMARY KEY,
-                steam_id TEXT,
-                quest1_complete INTEGER DEFAULT 0,
-                quest2_complete INTEGER DEFAULT 0,
-                quest3_complete INTEGER DEFAULT 0,
-                quest4_complete INTEGER DEFAULT 0,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            )
-        ''')
-        
-        # 기존 테이블에 quest4_complete 컬럼 추가 (마이그레이션)
-        try:
-            cursor.execute('ALTER TABLE users ADD COLUMN quest4_complete INTEGER DEFAULT 0')
-        except sqlite3.OperationalError:
-            # 컬럼이 이미 존재하는 경우 무시
-            pass
-        
-        conn.commit()
-        conn.close()
+        pool = await self._get_pool()
+        async with pool.acquire() as conn:
+            await conn.execute('''
+                CREATE TABLE IF NOT EXISTS users (
+                    discord_id BIGINT PRIMARY KEY,
+                    steam_id TEXT,
+                    quest1_complete INTEGER DEFAULT 0,
+                    quest2_complete INTEGER DEFAULT 0,
+                    quest3_complete INTEGER DEFAULT 0,
+                    quest4_complete INTEGER DEFAULT 0,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            ''')
+            
+            # 기존 테이블에 quest4_complete 컬럼 추가 (마이그레이션)
+            try:
+                await conn.execute('ALTER TABLE users ADD COLUMN quest4_complete INTEGER DEFAULT 0')
+            except asyncpg.exceptions.DuplicateColumnError:
+                # 컬럼이 이미 존재하는 경우 무시
+                pass
     
-    def get_user(self, discord_id: int) -> Optional[dict]:
+    async def get_user(self, discord_id: int) -> Optional[dict]:
         """사용자 정보 조회"""
-        conn = sqlite3.connect(self.db_name)
-        cursor = conn.cursor()
-        
-        cursor.execute('''
-            SELECT discord_id, steam_id, quest1_complete, quest2_complete, quest3_complete, quest4_complete
-            FROM users WHERE discord_id = ?
-        ''', (discord_id,))
-        
-        result = cursor.fetchone()
-        conn.close()
-        
-        if result:
-            return {
-                'discord_id': result[0],
-                'steam_id': result[1],
-                'quest1_complete': bool(result[2]),
-                'quest2_complete': bool(result[3]),
-                'quest3_complete': bool(result[4]),
-                'quest4_complete': bool(result[5]) if len(result) > 5 else False
-            }
-        return None
+        pool = await self._get_pool()
+        async with pool.acquire() as conn:
+            result = await conn.fetchrow('''
+                SELECT discord_id, steam_id, quest1_complete, quest2_complete, quest3_complete, quest4_complete
+                FROM users WHERE discord_id = $1
+            ''', discord_id)
+            
+            if result:
+                return {
+                    'discord_id': result['discord_id'],
+                    'steam_id': result['steam_id'],
+                    'quest1_complete': bool(result['quest1_complete']),
+                    'quest2_complete': bool(result['quest2_complete']),
+                    'quest3_complete': bool(result['quest3_complete']),
+                    'quest4_complete': bool(result['quest4_complete']) if result['quest4_complete'] is not None else False
+                }
+            return None
     
-    def create_user(self, discord_id: int):
+    async def create_user(self, discord_id: int):
         """새 사용자 생성"""
-        conn = sqlite3.connect(self.db_name)
-        cursor = conn.cursor()
-        
-        cursor.execute('''
-            INSERT OR IGNORE INTO users (discord_id) VALUES (?)
-        ''', (discord_id,))
-        
-        conn.commit()
-        conn.close()
+        pool = await self._get_pool()
+        async with pool.acquire() as conn:
+            await conn.execute('''
+                INSERT INTO users (discord_id) VALUES ($1)
+                ON CONFLICT (discord_id) DO NOTHING
+            ''', discord_id)
     
-    def update_steam_id(self, discord_id: int, steam_id: str):
+    async def update_steam_id(self, discord_id: int, steam_id: str):
         """Steam ID 업데이트"""
-        conn = sqlite3.connect(self.db_name)
-        cursor = conn.cursor()
-        
-        cursor.execute('''
-            UPDATE users SET steam_id = ?, quest1_complete = 1 WHERE discord_id = ?
-        ''', (steam_id, discord_id))
-        
-        conn.commit()
-        conn.close()
+        pool = await self._get_pool()
+        async with pool.acquire() as conn:
+            await conn.execute('''
+                UPDATE users SET steam_id = $1, quest1_complete = 1 WHERE discord_id = $2
+            ''', steam_id, discord_id)
     
-    def update_quest(self, discord_id: int, quest_number: int, complete: bool = True):
+    async def update_quest(self, discord_id: int, quest_number: int, complete: bool = True):
         """퀘스트 완료 상태 업데이트"""
-        conn = sqlite3.connect(self.db_name)
-        cursor = conn.cursor()
-        
+        pool = await self._get_pool()
         quest_column = f'quest{quest_number}_complete'
-        cursor.execute(f'''
-            UPDATE users SET {quest_column} = ? WHERE discord_id = ?
-        ''', (1 if complete else 0, discord_id))
-        
-        conn.commit()
-        conn.close()
+        async with pool.acquire() as conn:
+            await conn.execute(f'''
+                UPDATE users SET {quest_column} = $1 WHERE discord_id = $2
+            ''', 1 if complete else 0, discord_id)
     
     def get_total_wishlist_count(self) -> int:
         """전체 위시리스트 수 조회 (캐시된 값 반환)"""
@@ -130,9 +129,9 @@ class DatabaseManager:
         # 여기서는 캐시된 값을 반환 (실시간 업데이트는 async 함수에서)
         return 32500
     
-    def are_all_quests_complete(self, discord_id: int) -> bool:
+    async def are_all_quests_complete(self, discord_id: int) -> bool:
         """모든 퀘스트가 완료되었는지 확인"""
-        user_data = self.get_user(discord_id)
+        user_data = await self.get_user(discord_id)
         if not user_data:
             return False
         
@@ -142,6 +141,11 @@ class DatabaseManager:
             user_data.get('quest3_complete', False) and
             user_data.get('quest4_complete', False)
         )
+    
+    async def close(self):
+        """데이터베이스 연결 풀 종료"""
+        if self.pool:
+            await self.pool.close()
 
 
 def create_progress_bar(current: int, milestones: list, length: int = 20) -> tuple:
@@ -244,10 +248,10 @@ class SteamLinkModal(Modal, title='Link Steam Account'):
             return
         
         # 데이터베이스에 저장
-        self.db.create_user(interaction.user.id)
-        self.db.update_steam_id(interaction.user.id, steam_id)
+        await self.db.create_user(interaction.user.id)
+        await self.db.update_steam_id(interaction.user.id, steam_id)
         # Steam ID 연동 완료 처리
-        self.db.update_quest(interaction.user.id, 1, True)
+        await self.db.update_quest(interaction.user.id, 1, True)
         
         await interaction.followup.send(
             f"✅ Step 1: Steam ID linking completed! (Steam ID: {steam_id})",
@@ -265,7 +269,7 @@ class SteamLinkModal(Modal, title='Link Steam Account'):
             print(f"update_embed 오류 (Step 1): {e}")
             # 오류 발생 시 새로운 Embed 전송
             try:
-                user_data = self.db.get_user(interaction.user.id)
+                user_data = await self.db.get_user(interaction.user.id)
                 embed = discord.Embed(
                     title="🎮 Steam Code SZ Program",
                     description="Complete these quests to receive a special Discord role.\nAdventurers who receive the special role will get additional rewards. (Rewards to be announced)",
@@ -540,7 +544,7 @@ async def check_wishlist(steam_id: str, app_id: str) -> bool:
 async def auto_assign_reward_role(interaction: discord.Interaction, db: DatabaseManager):
     """모든 퀘스트 완료 시 자동으로 보상 역할 부여"""
     # 모든 퀘스트 완료 확인
-    if not db.are_all_quests_complete(interaction.user.id):
+    if not await db.are_all_quests_complete(interaction.user.id):
         return False
     
     # Guild 확인 (DM에서는 역할 부여 불가)
@@ -620,7 +624,7 @@ class ClaimRoleView(View):
     @discord.ui.button(label='🎁 Claim Role', style=discord.ButtonStyle.success)
     async def claim_role(self, interaction: discord.Interaction, button: Button):
         # 모든 퀘스트 완료 확인
-        if not self.db.are_all_quests_complete(interaction.user.id):
+        if not await self.db.are_all_quests_complete(interaction.user.id):
             await interaction.response.send_message(
                 "❌ You must complete all quests to receive the role!",
                 ephemeral=True
@@ -789,10 +793,10 @@ class QuestSelect(Select):
     
     async def callback(self, interaction: discord.Interaction):
         selected = self.values[0]
-        user_data = self.db.get_user(interaction.user.id)
+        user_data = await self.db.get_user(interaction.user.id)
         if not user_data:
-            self.db.create_user(interaction.user.id)
-            user_data = self.db.get_user(interaction.user.id)
+            await self.db.create_user(interaction.user.id)
+            user_data = await self.db.get_user(interaction.user.id)
         
         if selected == "all_complete":
             await interaction.response.send_message(
@@ -939,7 +943,7 @@ class WishlistManualConfirmView(View):
     
     @discord.ui.button(label='✅ Manual Confirm (Added to Wishlist)', style=discord.ButtonStyle.success)
     async def manual_confirm(self, interaction: discord.Interaction, button: Button):
-        user_data = self.db.get_user(interaction.user.id)
+        user_data = await self.db.get_user(interaction.user.id)
         
         if user_data and user_data.get('quest2_complete'):
             await interaction.response.send_message(
@@ -961,8 +965,8 @@ class WishlistManualConfirmView(View):
             return
         
         # 수동 확인 - 완료 처리
-        self.db.create_user(interaction.user.id)
-        self.db.update_quest(interaction.user.id, 2, True)
+        await self.db.create_user(interaction.user.id)
+        await self.db.update_quest(interaction.user.id, 2, True)
         
         await interaction.response.defer(ephemeral=True)
         
@@ -989,8 +993,8 @@ class WishlistManualConfirmView(View):
         has_wishlist = await check_wishlist(self.steam_id, APP_ID)
         
         if has_wishlist:
-            self.db.create_user(interaction.user.id)
-            self.db.update_quest(interaction.user.id, 2, True)
+            await self.db.create_user(interaction.user.id)
+            await self.db.update_quest(interaction.user.id, 2, True)
             
             await interaction.followup.send(
                 "✅ Verification successful! Step 2: Spot Zero Wishlist completed!",
@@ -1064,7 +1068,7 @@ class WishlistConfirmView(View):
     
     @discord.ui.button(label='✅ Wishlist Added', style=discord.ButtonStyle.success)
     async def confirm_wishlist(self, interaction: discord.Interaction, button: Button):
-        user_data = self.db.get_user(interaction.user.id)
+        user_data = await self.db.get_user(interaction.user.id)
         
         if user_data and user_data.get('quest2_complete'):
             await interaction.response.send_message(
@@ -1118,8 +1122,8 @@ class WishlistConfirmView(View):
             return
         
         # 검증 성공 - 완료 처리
-        self.db.create_user(interaction.user.id)
-        self.db.update_quest(interaction.user.id, 2, True)
+        await self.db.create_user(interaction.user.id)
+        await self.db.update_quest(interaction.user.id, 2, True)
         
         await interaction.followup.send(
             "✅ Step 2: Spot Zero Wishlist completed!",
@@ -1191,7 +1195,7 @@ class SteamFollowConfirmView(View):
     
     @discord.ui.button(label='✅ Follow Confirmed', style=discord.ButtonStyle.success)
     async def confirm_follow(self, interaction: discord.Interaction, button: Button):
-        user_data = self.db.get_user(interaction.user.id)
+        user_data = await self.db.get_user(interaction.user.id)
         
         if user_data and user_data.get('quest3_complete'):
             await interaction.response.send_message(
@@ -1221,8 +1225,8 @@ class SteamFollowConfirmView(View):
         
         # Steam 페이지 팔로우는 API로 확인할 수 없으므로,
         # 사용자가 페이지를 방문하고 확인 버튼을 누른 것으로 간주
-        self.db.create_user(interaction.user.id)
-        self.db.update_quest(interaction.user.id, 3, True)
+        await self.db.create_user(interaction.user.id)
+        await self.db.update_quest(interaction.user.id, 3, True)
         
         await interaction.response.defer(ephemeral=True)
         
@@ -1293,7 +1297,7 @@ class PostLikeConfirmView(View):
     
     @discord.ui.button(label='✅ Post Confirmed', style=discord.ButtonStyle.success)
     async def confirm_post_like(self, interaction: discord.Interaction, button: Button):
-        user_data = self.db.get_user(interaction.user.id)
+        user_data = await self.db.get_user(interaction.user.id)
         
         if user_data and user_data.get('quest4_complete'):
             await interaction.response.send_message(
@@ -1323,8 +1327,8 @@ class PostLikeConfirmView(View):
         
         # Steam 커뮤니티 포스트 좋아요는 API로 확인할 수 없으므로,
         # 사용자가 페이지를 방문하고 확인 버튼을 누른 것으로 간주
-        self.db.create_user(interaction.user.id)
-        self.db.update_quest(interaction.user.id, 4, True)
+        await self.db.create_user(interaction.user.id)
+        await self.db.update_quest(interaction.user.id, 4, True)
         
         await interaction.response.defer(ephemeral=True)
         
@@ -1354,10 +1358,10 @@ class QuestView(View):
     
     async def update_embed(self, interaction: discord.Interaction):
         """Embed 업데이트"""
-        user_data = self.db.get_user(interaction.user.id)
+        user_data = await self.db.get_user(interaction.user.id)
         if not user_data:
-            self.db.create_user(interaction.user.id)
-            user_data = self.db.get_user(interaction.user.id)
+            await self.db.create_user(interaction.user.id)
+            user_data = await self.db.get_user(interaction.user.id)
         
         # 퀘스트 상태
         quest1_status = "✅ Complete" if user_data.get('quest1_complete') else "❌ Incomplete"
@@ -1436,10 +1440,10 @@ async def steam_command(interaction: discord.Interaction):
     db = DatabaseManager()
     
     # 사용자 데이터 조회
-    user_data = db.get_user(interaction.user.id)
+    user_data = await db.get_user(interaction.user.id)
     if not user_data:
-        db.create_user(interaction.user.id)
-        user_data = db.get_user(interaction.user.id)
+        await db.create_user(interaction.user.id)
+        user_data = await db.get_user(interaction.user.id)
     
     # 퀘스트 상태
     quest1_status = "✅ Complete" if user_data.get('quest1_complete') else "❌ Incomplete"
