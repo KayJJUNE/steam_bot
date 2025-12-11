@@ -108,20 +108,28 @@ class DatabaseManager:
             
             # 기존 테이블에 quest4_complete 컬럼 추가 (마이그레이션)
             # 컬럼이 이미 존재하는지 확인 후 추가
-            column_exists = await conn.fetchval('''
-                SELECT EXISTS (
-                    SELECT 1 
-                    FROM information_schema.columns 
-                    WHERE table_name = 'users' 
-                    AND column_name = 'quest4_complete'
-                )
-            ''')
-            
-            if not column_exists:
-                try:
+            # PostgreSQL에서는 동시 실행 시 race condition을 방지하기 위해 예외 처리 사용
+            try:
+                column_exists = await conn.fetchval('''
+                    SELECT EXISTS (
+                        SELECT 1 
+                        FROM information_schema.columns 
+                        WHERE table_name = 'users' 
+                        AND column_name = 'quest4_complete'
+                    )
+                ''')
+                
+                if not column_exists:
                     await conn.execute('ALTER TABLE users ADD COLUMN quest4_complete INTEGER DEFAULT 0')
-                except Exception as e:
-                    # 컬럼 추가 실패 시 로그만 출력 (이미 존재할 수 있음)
+            except Exception as e:
+                # 컬럼이 이미 존재하거나 다른 이유로 실패한 경우 무시
+                # (race condition으로 인해 다른 연결에서 이미 추가했을 수 있음)
+                error_str = str(e).lower()
+                if 'already exists' in error_str or 'duplicate' in error_str:
+                    # 정상적인 경우 - 컬럼이 이미 존재함
+                    pass
+                else:
+                    # 다른 에러인 경우만 로그 출력
                     debug_mode = os.getenv('DEBUG', 'False').lower() == 'true'
                     if debug_mode:
                         print(f"[DB] Could not add quest4_complete column: {e}")
