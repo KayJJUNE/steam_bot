@@ -190,7 +190,7 @@ class SteamLinkModal(Modal, title='Link Steam Account'):
     
     steam_input = TextInput(
         label='Steam ID or Profile URL',
-        placeholder='Enter Steam ID 64 or profile URL',
+        placeholder='Enter Steam ID or profile URL',
         required=True,
         max_length=200
     )
@@ -219,7 +219,7 @@ class SteamLinkModal(Modal, title='Link Steam Account'):
                     custom_url = match.group(1)
                     steam_id = await resolve_vanity_url(custom_url)
         else:
-            # 숫자만 있는 경우 (Steam ID 64)
+            # 숫자만 있는 경우 (Steam ID)
             if steam_input.isdigit():
                 steam_id = steam_input
         
@@ -228,7 +228,7 @@ class SteamLinkModal(Modal, title='Link Steam Account'):
         
         if not steam_id:
             await interaction.followup.send(
-                "❌ Invalid Steam ID or URL. Please enter Steam ID 64 or profile URL.",
+                "❌ Invalid Steam ID or URL. Please enter Steam ID or profile URL.",
                 ephemeral=True
             )
             return
@@ -280,7 +280,7 @@ class SteamLinkModal(Modal, title='Link Steam Account'):
 
 
 async def resolve_vanity_url(vanity_url: str) -> Optional[str]:
-    """Steam 커스텀 URL을 Steam ID 64로 변환"""
+    """Steam 커스텀 URL을 Steam ID로 변환"""
     if not STEAM_API_KEY:
         return None
     
@@ -704,8 +704,8 @@ class SteamLinkSelect(Select):
     def __init__(self, db: DatabaseManager, view_instance):
         options = [
             discord.SelectOption(
-                label="Enter Steam ID 64",
-                description="Enter Steam ID 64 directly",
+                label="Enter Steam ID",
+                description="Enter Steam ID directly",
                 value="steam_id",
                 emoji="🔢"
             ),
@@ -815,9 +815,9 @@ class QuestSelect(Select):
             guide_embed = discord.Embed(
                 title="📝 Step 1: Link Steam ID Guide",
                 description="**💡 Tip**: You can find your Steam profile URL and ID by clicking on your Steam profile.\n\n"
-                           "**How to find Steam ID 64:**\n"
+                           "**How to find Steam ID:**\n"
                            "1. Go to your Steam profile page\n"
-                           "2. In the address bar, the number after `/profiles/` is your Steam ID 64\n"
+                           "2. In the address bar, the number after `/profiles/` is your Steam ID\n"
                            "3. Or if you have a custom URL, enter the text after `/id/`\n\n"
                            "After reviewing the guide, click the button below to enter your Steam ID.",
                 color=discord.Color.blue()
