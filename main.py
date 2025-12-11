@@ -20,8 +20,8 @@ COMMUNITY_POST_URL = os.getenv('COMMUNITY_POST_URL', 'https://store.steampowered
 MILESTONES = [10000, 30000, 50000]  # 마일스톤: 1만, 3만, 5만
 TARGET_WISHLIST_COUNT = 50000  # 최종 목표 위시리스트 수
 WISHLIST_API_URL = os.getenv('WISHLIST_API_URL')  # 위시리스트 수를 가져올 API URL (선택사항)
-MILESTONE_REWARD_IMAGE_URL = os.getenv('MILESTONE_REWARD_IMAGE_URL', 'https://i.postimg.cc/mk2pHYd5/Hailuo-Image-kkwagchan-imijilo-455099822323220490.jpg')  # 마일스톤 리워드 소개 이미지 URL
-REWARD_ROLE_ID = os.getenv('REWARD_ROLE_ID', '1448242630667534449')  # 모든 퀘스트 완료 시 부여할 역할 ID
+MILESTONE_REWARD_IMAGE_URL = os.getenv('MILESTONE_REWARD_IMAGE_URL', 'https://i.postimg.cc/WpCsTc92/paint-(2).png')  # 마일스톤 리워드 소개 이미지 URL
+REWARD_ROLE_ID = os.getenv('REWARD_ROLE_ID', '1448577103728607344')  # 모든 퀘스트 완료 시 부여할 역할 ID
 
 intents = discord.Intents.default()
 # message_content intent는 슬래시 명령어만 사용하므로 필요 없음
