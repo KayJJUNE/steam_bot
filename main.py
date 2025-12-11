@@ -185,12 +185,12 @@ def create_progress_bar(current: int, milestones: list, length: int = 20) -> tup
     return progress_text, achieved_milestones
 
 
-class SteamLinkModal(Modal, title='Steam 계정 연결'):
-    """Steam 계정 연결을 위한 Modal"""
+class SteamLinkModal(Modal, title='Link Steam Account'):
+    """Modal for linking Steam account"""
     
     steam_input = TextInput(
-        label='Steam ID 또는 Profile URL',
-        placeholder='Steam ID 64 또는 프로필 URL을 입력하세요',
+        label='Steam ID or Profile URL',
+        placeholder='Enter Steam ID 64 or profile URL',
         required=True,
         max_length=200
     )
@@ -228,7 +228,7 @@ class SteamLinkModal(Modal, title='Steam 계정 연결'):
         
         if not steam_id:
             await interaction.followup.send(
-                "❌ 유효하지 않은 Steam ID 또는 URL입니다. Steam ID 64 또는 프로필 URL을 입력해주세요.",
+                "❌ Invalid Steam ID or URL. Please enter Steam ID 64 or profile URL.",
                 ephemeral=True
             )
             return
@@ -238,7 +238,7 @@ class SteamLinkModal(Modal, title='Steam 계정 연결'):
         
         if not is_valid:
             await interaction.followup.send(
-                "❌ Steam ID를 확인할 수 없습니다. 올바른 Steam ID인지 확인해주세요.",
+                "❌ Unable to verify Steam ID. Please check if it's a valid Steam ID.",
                 ephemeral=True
             )
             return
@@ -250,7 +250,7 @@ class SteamLinkModal(Modal, title='Steam 계정 연결'):
         self.db.update_quest(interaction.user.id, 1, True)
         
         await interaction.followup.send(
-            f"✅ Step 1: Steam ID 연동이 완료되었습니다! (Steam ID: {steam_id})",
+            f"✅ Step 1: Steam ID linking completed! (Steam ID: {steam_id})",
             ephemeral=True
         )
         
@@ -268,7 +268,7 @@ class SteamLinkModal(Modal, title='Steam 계정 연결'):
                 user_data = self.db.get_user(interaction.user.id)
                 embed = discord.Embed(
                     title="🎮 Welcome to Spot Zero Hunter Program",
-                    description="해당 퀘스트를 완료하면 디스코드 특수롤을 받을 수 있습니다.\n특수롤을 받은 모험가분들은 별도의 보상이 됩니다. (리워드 추후 공개)",
+                    description="Complete these quests to receive a special Discord role.\nAdventurers who receive the special role will get additional rewards. (Rewards to be announced)",
                     color=discord.Color.blue()
                 )
                 if MILESTONE_REWARD_IMAGE_URL:
@@ -577,12 +577,12 @@ async def auto_assign_reward_role(interaction: discord.Interaction, db: Database
             # followup이 가능한지 확인
             if interaction.response.is_done():
                 await interaction.followup.send(
-                    f"🎉 축하합니다! 모든 퀘스트를 완료하여 역할 **{role.name}**이 자동으로 지급되었습니다!",
+                    f"🎉 Congratulations! You've completed all quests and the role **{role.name}** has been automatically assigned!",
                     ephemeral=True
                 )
             else:
                 await interaction.response.send_message(
-                    f"🎉 축하합니다! 모든 퀘스트를 완료하여 역할 **{role.name}**이 자동으로 지급되었습니다!",
+                    f"🎉 Congratulations! You've completed all quests and the role **{role.name}** has been automatically assigned!",
                     ephemeral=True
                 )
         except Exception as e:
@@ -617,12 +617,12 @@ class ClaimRoleView(View):
         self.db = db
         self.role_id = role_id
     
-    @discord.ui.button(label='🎁 롤 받기 (Claim Role)', style=discord.ButtonStyle.success)
+    @discord.ui.button(label='🎁 Claim Role', style=discord.ButtonStyle.success)
     async def claim_role(self, interaction: discord.Interaction, button: Button):
         # 모든 퀘스트 완료 확인
         if not self.db.are_all_quests_complete(interaction.user.id):
             await interaction.response.send_message(
-                "❌ 모든 퀘스트를 완료해야 역할을 받을 수 있습니다!",
+                "❌ You must complete all quests to receive the role!",
                 ephemeral=True
             )
             return
@@ -630,7 +630,7 @@ class ClaimRoleView(View):
         # Guild 확인
         if not interaction.guild:
             await interaction.response.send_message(
-                "❌ 서버에서만 역할을 받을 수 있습니다!",
+                "❌ You can only receive roles in a server!",
                 ephemeral=True
             )
             return
@@ -640,7 +640,7 @@ class ClaimRoleView(View):
             role = interaction.guild.get_role(self.role_id)
             if not role:
                 await interaction.response.send_message(
-                    "❌ 역할을 찾을 수 없습니다. 관리자에게 문의해주세요.",
+                    "❌ Role not found. Please contact an administrator.",
                     ephemeral=True
                 )
                 return
@@ -653,33 +653,33 @@ class ClaimRoleView(View):
             # 이미 역할이 있는지 확인
             if role in member.roles:
                 await interaction.response.send_message(
-                    "✅ 이미 역할을 획득했습니다!",
+                    "✅ You already have this role!",
                     ephemeral=True
                 )
                 return
             
             # 역할 부여
-            await member.add_roles(role, reason="Spot Zero Hunter Program 모든 퀘스트 완료")
+            await member.add_roles(role, reason="Spot Zero Hunter Program - All quests completed")
             
             await interaction.response.send_message(
-                "🎉 축하합니다! 역할이 지급되었습니다!",
+                "🎉 Congratulations! The role has been assigned!",
                 ephemeral=True
             )
             
         except discord.Forbidden:
             await interaction.response.send_message(
-                "❌ 역할 부여 권한이 없습니다. 관리자에게 문의해주세요.",
+                "❌ No permission to assign roles. Please contact an administrator.",
                 ephemeral=True
             )
         except discord.HTTPException as e:
             await interaction.response.send_message(
-                f"❌ 역할 부여 중 오류가 발생했습니다: {e}",
+                f"❌ An error occurred while assigning the role: {e}",
                 ephemeral=True
             )
         except Exception as e:
             print(f"역할 부여 중 예외 발생: {e}")
             await interaction.response.send_message(
-                "❌ 역할 부여 중 오류가 발생했습니다. 관리자에게 문의해주세요.",
+                "❌ An error occurred while assigning the role. Please contact an administrator.",
                 ephemeral=True
             )
 
@@ -692,7 +692,7 @@ class SteamLinkGuideView(View):
         self.db = db
         self.view_instance = view_instance
     
-    @discord.ui.button(label='📝 Steam ID 입력하기', style=discord.ButtonStyle.primary)
+    @discord.ui.button(label='📝 Enter Steam ID', style=discord.ButtonStyle.primary)
     async def open_modal(self, interaction: discord.Interaction, button: Button):
         modal = SteamLinkModal(self.db, self.view_instance)
         await interaction.response.send_modal(modal)
@@ -704,19 +704,19 @@ class SteamLinkSelect(Select):
     def __init__(self, db: DatabaseManager, view_instance):
         options = [
             discord.SelectOption(
-                label="Steam ID 64 입력",
-                description="Steam ID 64를 직접 입력합니다",
+                label="Enter Steam ID 64",
+                description="Enter Steam ID 64 directly",
                 value="steam_id",
                 emoji="🔢"
             ),
             discord.SelectOption(
-                label="Steam 프로필 URL 입력",
-                description="Steam 프로필 URL을 입력합니다",
+                label="Enter Steam Profile URL",
+                description="Enter Steam profile URL",
                 value="profile_url",
                 emoji="🔗"
             )
         ]
-        super().__init__(placeholder="Steam 계정 연결 (선택사항)...", options=options, min_values=1, max_values=1)
+        super().__init__(placeholder="Link Steam Account (Optional)...", options=options, min_values=1, max_values=1)
         self.db = db
         self.view_instance = view_instance
     
@@ -732,7 +732,7 @@ class QuestSelect(Select):
     def __init__(self, db: DatabaseManager, view_instance):
         self.db = db
         self.view_instance = view_instance
-        super().__init__(placeholder="퀘스트를 선택하세요...", min_values=1, max_values=1)
+        super().__init__(placeholder="Select a quest...", min_values=1, max_values=1)
         self._update_options()
     
     def _update_options(self):
@@ -743,8 +743,8 @@ class QuestSelect(Select):
         # Step 1: Steam ID 연동 (완료되지 않은 경우만 표시)
         if not user_data.get('quest1_complete'):
             options.append(discord.SelectOption(
-                label="Step 1: Steam ID 연동",
-                description="Steam 계정을 연결하세요",
+                label="Step 1: Link Steam ID",
+                description="Link your Steam account",
                 value="quest1",
                 emoji="🔗"
             ))
@@ -753,7 +753,7 @@ class QuestSelect(Select):
         if not user_data.get('quest2_complete'):
             options.append(discord.SelectOption(
                 label="Step 2: Spot Zero Wishlist",
-                description="Spot Zero를 위시리스트에 추가하세요",
+                description="Add Spot Zero to your wishlist",
                 value="quest2",
                 emoji="🎁"
             ))
@@ -761,8 +761,8 @@ class QuestSelect(Select):
         # Step 3: Spot Zero Steam page follow (완료되지 않은 경우만 표시)
         if not user_data.get('quest3_complete'):
             options.append(discord.SelectOption(
-                label="Step 3: Spot Zero Steam page follow",
-                description="Spot Zero Steam 페이지를 팔로우하세요",
+                label="Step 3: Follow Spot Zero Steam Page",
+                description="Follow the Spot Zero Steam page",
                 value="quest3",
                 emoji="⭐"
             ))
@@ -770,8 +770,8 @@ class QuestSelect(Select):
         # Step 4: 포스트 라이크 (완료되지 않은 경우만 표시)
         if not user_data.get('quest4_complete'):
             options.append(discord.SelectOption(
-                label="Step 4: 포스트 라이크",
-                description="포스트에 좋아요를 눌러주세요",
+                label="Step 4: Like Post",
+                description="Like the community post",
                 value="quest4",
                 emoji="👍"
             ))
@@ -779,8 +779,8 @@ class QuestSelect(Select):
         # 모든 퀘스트가 완료된 경우
         if not options:
             options.append(discord.SelectOption(
-                label="모든 퀘스트 완료! 🎉",
-                description="모든 퀘스트를 완료하셨습니다!",
+                label="All Quests Completed! 🎉",
+                description="You've completed all quests!",
                 value="all_complete",
                 emoji="🎉"
             ))
@@ -796,8 +796,8 @@ class QuestSelect(Select):
         
         if selected == "all_complete":
             await interaction.response.send_message(
-                "🎉 모든 퀘스트를 완료하셨습니다!\n\n"
-                "보상 역할이 자동으로 지급되었습니다. 서버에서 확인해보세요!",
+                "🎉 You've completed all quests!\n\n"
+                "The reward role has been automatically assigned. Check it out in the server!",
                 ephemeral=True
             )
             return
@@ -806,20 +806,20 @@ class QuestSelect(Select):
             # Step 1: Steam ID 연동
             if user_data.get('quest1_complete'):
                 await interaction.response.send_message(
-                    "✅ 이미 Step 1이 완료되었습니다!",
+                    "✅ Step 1 is already completed!",
                     ephemeral=True
                 )
                 return
             
             # 가이드 Embed 먼저 표시
             guide_embed = discord.Embed(
-                title="📝 Step 1: Steam ID 연동 가이드",
-                description="**💡 Tip**: Steam 프로필 URL과 ID는, Steam 프로필을 클릭하면 확인할 수 있습니다.\n\n"
-                           "**Steam ID 64 찾는 방법:**\n"
-                           "1. Steam 프로필 페이지로 이동\n"
-                           "2. 주소창에서 `/profiles/` 뒤의 숫자가 Steam ID 64입니다\n"
-                           "3. 또는 커스텀 URL인 경우 `/id/` 뒤의 텍스트를 입력하세요\n\n"
-                           "가이드를 확인한 후, 아래 버튼을 클릭하여 Steam ID를 입력하세요.",
+                title="📝 Step 1: Link Steam ID Guide",
+                description="**💡 Tip**: You can find your Steam profile URL and ID by clicking on your Steam profile.\n\n"
+                           "**How to find Steam ID 64:**\n"
+                           "1. Go to your Steam profile page\n"
+                           "2. In the address bar, the number after `/profiles/` is your Steam ID 64\n"
+                           "3. Or if you have a custom URL, enter the text after `/id/`\n\n"
+                           "After reviewing the guide, click the button below to enter your Steam ID.",
                 color=discord.Color.blue()
             )
             
@@ -831,27 +831,27 @@ class QuestSelect(Select):
             # Step 2: Spot Zero Wishlist
             if user_data.get('quest2_complete'):
                 await interaction.response.send_message(
-                    "✅ 이미 Step 2가 완료되었습니다! (위시리스트를 취소해도 완료 상태는 유지됩니다)",
+                    "✅ Step 2 is already completed! (Completion status is maintained even if you remove it from wishlist)",
                     ephemeral=True
                 )
                 return
             
             if not user_data.get('steam_id'):
                 await interaction.response.send_message(
-                    "❌ 먼저 Step 1: Steam ID 연동을 완료해주세요!",
+                    "❌ Please complete Step 1: Link Steam ID first!",
                     ephemeral=True
                 )
                 return
             
             # 가이드 메시지와 함께 View 표시
             guide_embed = discord.Embed(
-                title="📝 Step 2: Spot Zero Wishlist 가이드",
-                description="**💡 Tip**: 사용자의 Steam 프로필이 공개로 설정되어 있어야 작동합니다.\n\n"
-                           f"**프로필 공개 설정**: [여기를 클릭하여 확인하세요](https://steamcommunity.com/my/edit/settings)\n\n"
-                           "**위시리스트 추가 방법:**\n"
-                           "1. 아래 버튼을 클릭하여 Spot Zero 스토어 페이지로 이동\n"
-                           "2. '위시리스트에 추가' 버튼 클릭\n"
-                           "3. 돌아와서 '위시리스트 추가 완료' 버튼 클릭",
+                title="📝 Step 2: Spot Zero Wishlist Guide",
+                description="**💡 Tip**: Your Steam profile must be set to public for this to work.\n\n"
+                           f"**Profile Privacy Settings**: [Click here to check](https://steamcommunity.com/my/edit/settings)\n\n"
+                           "**How to add to wishlist:**\n"
+                           "1. Click the button below to go to the Spot Zero store page\n"
+                           "2. Click 'Add to Wishlist' button\n"
+                           "3. Come back and click 'Wishlist Added' button",
                 color=discord.Color.blue()
             )
             
@@ -868,26 +868,26 @@ class QuestSelect(Select):
             # Step 3: Spot Zero Steam page follow
             if user_data.get('quest3_complete'):
                 await interaction.response.send_message(
-                    "✅ 이미 Step 3이 완료되었습니다!",
+                    "✅ Step 3 is already completed!",
                     ephemeral=True
                 )
                 return
             
             if not user_data.get('steam_id'):
                 await interaction.response.send_message(
-                    "❌ 먼저 Step 1: Steam ID 연동을 완료해주세요!",
+                    "❌ Please complete Step 1: Link Steam ID first!",
                     ephemeral=True
                 )
                 return
             
             # 가이드 메시지와 함께 View 표시 (처음에는 스토어 페이지 링크만)
             guide_embed = discord.Embed(
-                title="📝 Step 3: Spot Zero Steam page follow 가이드",
-                description="**Steam 페이지 팔로우 방법:**\n"
-                           "1. 아래 '스토어 페이지 열기' 버튼을 클릭하여 Spot Zero 스토어 페이지로 이동\n"
-                           "2. 스토어 페이지에서 '팔로우' 버튼 클릭\n"
-                           "3. Discord로 돌아와서 '스토어 페이지 방문 완료' 버튼 클릭\n"
-                           "4. 그 다음 '팔로우 확인 완료' 버튼 클릭",
+                title="📝 Step 3: Follow Spot Zero Steam Page Guide",
+                description="**How to follow Steam page:**\n"
+                           "1. Click the 'Open Store Page' button below to go to the Spot Zero store page\n"
+                           "2. Click the 'Follow' button on the store page\n"
+                           "3. Return to Discord and click 'Store Page Visited' button\n"
+                           "4. Then click 'Follow Confirmed' button",
                 color=discord.Color.blue()
             )
             
@@ -903,19 +903,19 @@ class QuestSelect(Select):
             # Step 4: 포스트 라이크
             if user_data.get('quest4_complete'):
                 await interaction.response.send_message(
-                    "✅ 이미 Step 4가 완료되었습니다!",
+                    "✅ Step 4 is already completed!",
                     ephemeral=True
                 )
                 return
             
             # 가이드 메시지와 함께 View 표시
             guide_embed = discord.Embed(
-                title="📝 Step 4: 포스트 라이크 가이드",
-                description="**포스트 라이크 방법:**\n"
-                           "1. 아래 '포스트 페이지 열기' 버튼을 클릭하여 포스트 페이지로 이동\n"
-                           "2. 포스트 페이지에서 좋아요 버튼을 클릭\n"
-                           "3. Discord로 돌아와서 '포스트 페이지 방문 완료' 버튼 클릭\n"
-                           "4. 그 다음 '포스트 확인 완료' 버튼 클릭",
+                title="📝 Step 4: Like Post Guide",
+                description="**How to like the post:**\n"
+                           "1. Click the 'Open Post Page' button below to go to the post page\n"
+                           "2. Click the like button on the post page\n"
+                           "3. Return to Discord and click 'Post Page Visited' button\n"
+                           "4. Then click 'Post Confirmed' button",
                 color=discord.Color.blue()
             )
             
@@ -937,13 +937,13 @@ class WishlistManualConfirmView(View):
         self.steam_id = steam_id
         self.page_visited = page_visited  # 페이지 방문 여부 저장
     
-    @discord.ui.button(label='✅ 수동 확인 (위시리스트에 추가함)', style=discord.ButtonStyle.success)
+    @discord.ui.button(label='✅ Manual Confirm (Added to Wishlist)', style=discord.ButtonStyle.success)
     async def manual_confirm(self, interaction: discord.Interaction, button: Button):
         user_data = self.db.get_user(interaction.user.id)
         
         if user_data and user_data.get('quest2_complete'):
             await interaction.response.send_message(
-                "✅ 이미 Step 2가 완료되었습니다!",
+                "✅ Step 2 is already completed!",
                 ephemeral=True
             )
             return
@@ -951,11 +951,11 @@ class WishlistManualConfirmView(View):
         # 페이지 방문 확인 (수동 확인도 페이지 방문 후에만 가능)
         if not self.page_visited:
             await interaction.response.send_message(
-                "❌ 먼저 페이지를 이동해서 퀘스트를 완료해주세요.\n\n"
-                "1. '스토어 페이지 열기' 버튼을 클릭하여 페이지로 이동\n"
-                "2. '스토어 페이지 방문 완료' 버튼을 클릭\n"
-                "3. 위시리스트에 추가한 후 '위시리스트 추가 완료' 버튼 클릭\n"
-                "4. 검증 실패 시 '수동 확인' 버튼 사용",
+                "❌ Please visit the page first to complete the quest.\n\n"
+                "1. Click 'Open Store Page' button to go to the page\n"
+                "2. Click 'Store Page Visited' button\n"
+                "3. After adding to wishlist, click 'Wishlist Added' button\n"
+                "4. If verification fails, use 'Manual Confirm' button",
                 ephemeral=True
             )
             return
@@ -967,8 +967,8 @@ class WishlistManualConfirmView(View):
         await interaction.response.defer(ephemeral=True)
         
         await interaction.followup.send(
-            "✅ Step 2: Spot Zero Wishlist가 완료되었습니다!\n\n"
-            "수동 확인으로 처리되었습니다.",
+            "✅ Step 2: Spot Zero Wishlist completed!\n\n"
+            "Processed via manual confirmation.",
             ephemeral=True
         )
         
@@ -981,7 +981,7 @@ class WishlistManualConfirmView(View):
         except Exception as e:
             print(f"update_embed 오류 (Step 2 수동 확인): {e}")
     
-    @discord.ui.button(label='🔄 다시 검증 시도', style=discord.ButtonStyle.primary)
+    @discord.ui.button(label='🔄 Retry Verification', style=discord.ButtonStyle.primary)
     async def retry_verification(self, interaction: discord.Interaction, button: Button):
         await interaction.response.defer(ephemeral=True)
         
@@ -993,7 +993,7 @@ class WishlistManualConfirmView(View):
             self.db.update_quest(interaction.user.id, 2, True)
             
             await interaction.followup.send(
-                "✅ 검증 성공! Step 2: Spot Zero Wishlist가 완료되었습니다!",
+                "✅ Verification successful! Step 2: Spot Zero Wishlist completed!",
                 ephemeral=True
             )
             
@@ -1004,8 +1004,8 @@ class WishlistManualConfirmView(View):
             await self.quest_view_instance.update_embed(interaction)
         else:
             await interaction.followup.send(
-                "❌ 여전히 검증에 실패했습니다.\n\n"
-                "위시리스트에 추가하셨다면 '수동 확인' 버튼을 사용해주세요.",
+                "❌ Verification still failed.\n\n"
+                "If you've added it to your wishlist, please use the 'Manual Confirm' button.",
                 ephemeral=True
             )
 
@@ -1019,9 +1019,9 @@ class WishlistView(View):
         self.quest_view_instance = quest_view_instance
         self.page_visited = page_visited
         store_url = f"https://store.steampowered.com/app/{APP_ID}/"
-        self.add_item(Button(label='🔗 Spot Zero 스토어 페이지 열기', style=discord.ButtonStyle.link, url=store_url))
+        self.add_item(Button(label='🔗 Open Spot Zero Store Page', style=discord.ButtonStyle.link, url=store_url))
     
-    @discord.ui.button(label='✅ 스토어 페이지 방문 완료', style=discord.ButtonStyle.primary)
+    @discord.ui.button(label='✅ Store Page Visited', style=discord.ButtonStyle.primary)
     async def visited_store(self, interaction: discord.Interaction, button: Button):
         """스토어 페이지 방문 완료 버튼 - 위시리스트 확인 버튼을 활성화"""
         # 페이지 방문 플래그 설정
@@ -1032,15 +1032,15 @@ class WishlistView(View):
         
         try:
             await interaction.response.edit_message(
-                content="✅ 스토어 페이지를 방문하셨습니다!\n\n"
-                       "이제 위시리스트에 Spot Zero를 추가한 후, 아래 '위시리스트 추가 완료' 버튼을 눌러주세요.",
+                content="✅ You've visited the store page!\n\n"
+                       "Now add Spot Zero to your wishlist, then click the 'Wishlist Added' button below.",
                 view=view
             )
         except:
             # edit_message가 실패하면 새 메시지로 전송
             await interaction.response.send_message(
-                "✅ 스토어 페이지를 방문하셨습니다!\n\n"
-                "이제 위시리스트에 Spot Zero를 추가한 후, 아래 '위시리스트 추가 완료' 버튼을 눌러주세요.",
+                "✅ You've visited the store page!\n\n"
+                "Now add Spot Zero to your wishlist, then click the 'Wishlist Added' button below.",
                 view=view,
                 ephemeral=True
             )
@@ -1055,20 +1055,20 @@ class WishlistConfirmView(View):
         self.quest_view_instance = quest_view_instance
         self.page_visited = page_visited
         store_url = f"https://store.steampowered.com/app/{APP_ID}/"
-        self.add_item(Button(label='🔗 Spot Zero 스토어 페이지 열기', style=discord.ButtonStyle.link, url=store_url))
+        self.add_item(Button(label='🔗 Open Spot Zero Store Page', style=discord.ButtonStyle.link, url=store_url))
         # page_visited가 False이면 확인 버튼을 추가하지 않음 (무조건 방문 완료 버튼을 클릭해야 함)
         # 이 View는 visited_store 버튼을 클릭했을 때만 생성되므로 page_visited=True여야 함
         if not page_visited:
             # 이 경우는 정상적인 플로우가 아님 - 경고만 출력
             print(f"경고: WishlistConfirmView가 page_visited=False로 생성됨")
     
-    @discord.ui.button(label='✅ 위시리스트 추가 완료', style=discord.ButtonStyle.success)
+    @discord.ui.button(label='✅ Wishlist Added', style=discord.ButtonStyle.success)
     async def confirm_wishlist(self, interaction: discord.Interaction, button: Button):
         user_data = self.db.get_user(interaction.user.id)
         
         if user_data and user_data.get('quest2_complete'):
             await interaction.response.send_message(
-                "✅ 이미 Step 2가 완료되었습니다!",
+                "✅ Step 2 is already completed!",
                 ephemeral=True
             )
             return
@@ -1076,10 +1076,10 @@ class WishlistConfirmView(View):
         # 페이지 방문 확인
         if not self.page_visited:
             await interaction.response.send_message(
-                "❌ 먼저 페이지를 이동해서 퀘스트를 완료해주세요.\n\n"
-                "1. '스토어 페이지 열기' 버튼을 클릭하여 페이지로 이동\n"
-                "2. '스토어 페이지 방문 완료' 버튼을 클릭\n"
-                "3. 그 다음 '위시리스트 추가 완료' 버튼을 클릭",
+                "❌ Please visit the page first to complete the quest.\n\n"
+                "1. Click 'Open Store Page' button to go to the page\n"
+                "2. Click 'Store Page Visited' button\n"
+                "3. Then click 'Wishlist Added' button",
                 ephemeral=True
             )
             return
@@ -1087,7 +1087,7 @@ class WishlistConfirmView(View):
         # Steam ID 확인
         if not user_data or not user_data.get('steam_id'):
             await interaction.response.send_message(
-                "❌ 먼저 Step 1: Steam ID 연동을 완료해주세요!",
+                "❌ Please complete Step 1: Link Steam ID first!",
                 ephemeral=True
             )
             return
@@ -1104,14 +1104,14 @@ class WishlistConfirmView(View):
             # 검증 실패 시 수동 확인 옵션 제공 (page_visited 상태 전달)
             view = WishlistManualConfirmView(self.db, self.quest_view_instance, steam_id, page_visited=self.page_visited)
             await interaction.followup.send(
-                "❌ 자동 검증에 실패했습니다.\n\n"
-                "**다음을 확인해주세요:**\n"
-                "1. Steam 프로필이 공개로 설정되어 있는지 확인\n"
-                "   → [프로필 설정 링크](https://steamcommunity.com/my/edit/settings)\n"
-                "2. 위시리스트에 Spot Zero를 추가했는지 확인\n"
-                "   → [Spot Zero 스토어 페이지](https://store.steampowered.com/app/3966570/)\n\n"
-                "**위시리스트에 추가하셨다면**, 아래 '수동 확인' 버튼을 클릭해주세요.\n"
-                "Steam API가 프로필을 인식하는데 시간이 걸릴 수 있습니다.",
+                "❌ Automatic verification failed.\n\n"
+                "**Please check the following:**\n"
+                "1. Make sure your Steam profile is set to public\n"
+                "   → [Profile Settings Link](https://steamcommunity.com/my/edit/settings)\n"
+                "2. Make sure you've added Spot Zero to your wishlist\n"
+                "   → [Spot Zero Store Page](https://store.steampowered.com/app/3966570/)\n\n"
+                "**If you've added it to your wishlist**, please click the 'Manual Confirm' button below.\n"
+                "It may take some time for Steam API to recognize your profile.",
                 view=view,
                 ephemeral=True
             )
@@ -1122,7 +1122,7 @@ class WishlistConfirmView(View):
         self.db.update_quest(interaction.user.id, 2, True)
         
         await interaction.followup.send(
-            "✅ Step 2: Spot Zero Wishlist가 완료되었습니다!",
+            "✅ Step 2: Spot Zero Wishlist completed!",
             ephemeral=True
         )
         
@@ -1143,9 +1143,9 @@ class SteamFollowView(View):
         self.page_visited = page_visited
         store_url = f"https://store.steampowered.com/app/{APP_ID}/"
         # 스토어 페이지 링크 버튼은 항상 표시
-        self.add_item(Button(label='🔗 Spot Zero 스토어 페이지 열기', style=discord.ButtonStyle.link, url=store_url))
+        self.add_item(Button(label='🔗 Open Spot Zero Store Page', style=discord.ButtonStyle.link, url=store_url))
     
-    @discord.ui.button(label='✅ 스토어 페이지 방문 완료', style=discord.ButtonStyle.primary)
+    @discord.ui.button(label='✅ Store Page Visited', style=discord.ButtonStyle.primary)
     async def visited_store(self, interaction: discord.Interaction, button: Button):
         """스토어 페이지 방문 완료 버튼 - 확인 버튼을 활성화"""
         # 페이지 방문 플래그 설정
@@ -1159,15 +1159,15 @@ class SteamFollowView(View):
         
         try:
             await interaction.response.edit_message(
-                content="✅ 스토어 페이지를 방문하셨습니다!\n\n"
-                       "이제 스토어 페이지에서 '팔로우' 버튼을 클릭한 후, 아래 '팔로우 확인 완료' 버튼을 눌러주세요.",
+                content="✅ You've visited the store page!\n\n"
+                       "Now click the 'Follow' button on the store page, then click the 'Follow Confirmed' button below.",
                 view=view
             )
         except:
             # edit_message가 실패하면 새 메시지로 전송
             await interaction.response.send_message(
-                "✅ 스토어 페이지를 방문하셨습니다!\n\n"
-                "이제 스토어 페이지에서 '팔로우' 버튼을 클릭한 후, 아래 '팔로우 확인 완료' 버튼을 눌러주세요.",
+                "✅ You've visited the store page!\n\n"
+                "Now click the 'Follow' button on the store page, then click the 'Follow Confirmed' button below.",
                 view=view,
                 ephemeral=True
             )
@@ -1182,20 +1182,20 @@ class SteamFollowConfirmView(View):
         self.quest_view_instance = quest_view_instance
         self.page_visited = page_visited
         store_url = f"https://store.steampowered.com/app/{APP_ID}/"
-        self.add_item(Button(label='🔗 Spot Zero 스토어 페이지 열기', style=discord.ButtonStyle.link, url=store_url))
+        self.add_item(Button(label='🔗 Open Spot Zero Store Page', style=discord.ButtonStyle.link, url=store_url))
         # page_visited가 False이면 확인 버튼을 추가하지 않음 (무조건 방문 완료 버튼을 클릭해야 함)
         # 이 View는 visited_store 버튼을 클릭했을 때만 생성되므로 page_visited=True여야 함
         if not page_visited:
             # 이 경우는 정상적인 플로우가 아님 - 경고만 출력
             print(f"경고: SteamFollowConfirmView가 page_visited=False로 생성됨")
     
-    @discord.ui.button(label='✅ 팔로우 확인 완료', style=discord.ButtonStyle.success)
+    @discord.ui.button(label='✅ Follow Confirmed', style=discord.ButtonStyle.success)
     async def confirm_follow(self, interaction: discord.Interaction, button: Button):
         user_data = self.db.get_user(interaction.user.id)
         
         if user_data and user_data.get('quest3_complete'):
             await interaction.response.send_message(
-                "✅ 이미 Step 3이 완료되었습니다!",
+                "✅ Step 3 is already completed!",
                 ephemeral=True
             )
             return
@@ -1203,10 +1203,10 @@ class SteamFollowConfirmView(View):
         # 페이지 방문 확인
         if not self.page_visited:
             await interaction.response.send_message(
-                "❌ 먼저 페이지를 이동해서 퀘스트를 완료해주세요.\n\n"
-                "1. '스토어 페이지 열기' 버튼을 클릭하여 페이지로 이동\n"
-                "2. '스토어 페이지 방문 완료' 버튼을 클릭\n"
-                "3. 그 다음 '팔로우 확인 완료' 버튼을 클릭",
+                "❌ Please visit the page first to complete the quest.\n\n"
+                "1. Click 'Open Store Page' button to go to the page\n"
+                "2. Click 'Store Page Visited' button\n"
+                "3. Then click 'Follow Confirmed' button",
                 ephemeral=True
             )
             return
@@ -1214,7 +1214,7 @@ class SteamFollowConfirmView(View):
         # Steam ID 확인
         if not user_data or not user_data.get('steam_id'):
             await interaction.response.send_message(
-                "❌ 먼저 Step 1: Steam ID 연동을 완료해주세요!",
+                "❌ Please complete Step 1: Link Steam ID first!",
                 ephemeral=True
             )
             return
@@ -1227,7 +1227,7 @@ class SteamFollowConfirmView(View):
         await interaction.response.defer(ephemeral=True)
         
         await interaction.followup.send(
-            "✅ Step 3: Spot Zero Steam page follow가 완료되었습니다!",
+            "✅ Step 3: Follow Spot Zero Steam Page completed!",
             ephemeral=True
         )
         
@@ -1246,9 +1246,9 @@ class PostLikeView(View):
         self.db = db
         self.quest_view_instance = quest_view_instance
         self.page_visited = page_visited
-        self.add_item(Button(label='🔗 포스트 페이지 열기', style=discord.ButtonStyle.link, url=COMMUNITY_POST_URL))
+        self.add_item(Button(label='🔗 Open Post Page', style=discord.ButtonStyle.link, url=COMMUNITY_POST_URL))
     
-    @discord.ui.button(label='✅ 포스트 페이지 방문 완료', style=discord.ButtonStyle.primary)
+    @discord.ui.button(label='✅ Post Page Visited', style=discord.ButtonStyle.primary)
     async def visited_post(self, interaction: discord.Interaction, button: Button):
         """포스트 페이지 방문 완료 버튼 - 확인 버튼을 활성화"""
         # 페이지 방문 플래그 설정
@@ -1262,15 +1262,15 @@ class PostLikeView(View):
         
         try:
             await interaction.response.edit_message(
-                content="✅ 포스트 페이지를 방문하셨습니다!\n\n"
-                       "이제 포스트 페이지에서 좋아요 버튼을 클릭한 후, 아래 '포스트 확인 완료' 버튼을 눌러주세요.",
+                content="✅ You've visited the post page!\n\n"
+                       "Now click the like button on the post page, then click the 'Post Confirmed' button below.",
                 view=view
             )
         except:
             # edit_message가 실패하면 새 메시지로 전송
             await interaction.response.send_message(
-                "✅ 포스트 페이지를 방문하셨습니다!\n\n"
-                "이제 포스트 페이지에서 좋아요 버튼을 클릭한 후, 아래 '포스트 확인 완료' 버튼을 눌러주세요.",
+                "✅ You've visited the post page!\n\n"
+                "Now click the like button on the post page, then click the 'Post Confirmed' button below.",
                 view=view,
                 ephemeral=True
             )
@@ -1284,20 +1284,20 @@ class PostLikeConfirmView(View):
         self.db = db
         self.quest_view_instance = quest_view_instance
         self.page_visited = page_visited
-        self.add_item(Button(label='🔗 포스트 페이지 열기', style=discord.ButtonStyle.link, url=COMMUNITY_POST_URL))
+        self.add_item(Button(label='🔗 Open Post Page', style=discord.ButtonStyle.link, url=COMMUNITY_POST_URL))
         # page_visited가 False이면 확인 버튼을 추가하지 않음 (무조건 방문 완료 버튼을 클릭해야 함)
         # 이 View는 visited_post 버튼을 클릭했을 때만 생성되므로 page_visited=True여야 함
         if not page_visited:
             # 이 경우는 정상적인 플로우가 아님 - 경고만 출력
             print(f"경고: PostLikeConfirmView가 page_visited=False로 생성됨")
     
-    @discord.ui.button(label='✅ 포스트 확인 완료', style=discord.ButtonStyle.success)
+    @discord.ui.button(label='✅ Post Confirmed', style=discord.ButtonStyle.success)
     async def confirm_post_like(self, interaction: discord.Interaction, button: Button):
         user_data = self.db.get_user(interaction.user.id)
         
         if user_data and user_data.get('quest4_complete'):
             await interaction.response.send_message(
-                "✅ 이미 Step 4가 완료되었습니다!",
+                "✅ Step 4 is already completed!",
                 ephemeral=True
             )
             return
@@ -1305,10 +1305,10 @@ class PostLikeConfirmView(View):
         # 페이지 방문 확인
         if not self.page_visited:
             await interaction.response.send_message(
-                "❌ 먼저 페이지를 이동해서 퀘스트를 완료해주세요.\n\n"
-                "1. '포스트 페이지 열기' 버튼을 클릭하여 페이지로 이동\n"
-                "2. '포스트 페이지 방문 완료' 버튼을 클릭\n"
-                "3. 그 다음 '포스트 확인 완료' 버튼을 클릭",
+                "❌ Please visit the page first to complete the quest.\n\n"
+                "1. Click 'Open Post Page' button to go to the page\n"
+                "2. Click 'Post Page Visited' button\n"
+                "3. Then click 'Post Confirmed' button",
                 ephemeral=True
             )
             return
@@ -1316,7 +1316,7 @@ class PostLikeConfirmView(View):
         # Steam ID 확인 (최소한의 검증)
         if not user_data or not user_data.get('steam_id'):
             await interaction.response.send_message(
-                "❌ 먼저 Step 1: Steam ID 연동을 완료해주세요!",
+                "❌ Please complete Step 1: Link Steam ID first!",
                 ephemeral=True
             )
             return
@@ -1329,7 +1329,7 @@ class PostLikeConfirmView(View):
         await interaction.response.defer(ephemeral=True)
         
         await interaction.followup.send(
-            "✅ Step 4: 포스트 라이크가 완료되었습니다!",
+            "✅ Step 4: Like Post completed!",
             ephemeral=True
         )
         
@@ -1367,7 +1367,7 @@ class QuestView(View):
         
         embed = discord.Embed(
             title="🎮 Welcome to Spot Zero Hunter Program",
-            description="해당 퀘스트를 완료하면 디스코드 특수롤을 받을 수 있습니다.\n특수롤을 받은 모험가분들은 별도의 보상이 됩니다. (리워드 추후 공개)",
+            description="Complete these quests to receive a special Discord role.\nAdventurers who receive the special role will get additional rewards. (Rewards to be announced)",
             color=discord.Color.blue()
         )
         
@@ -1376,7 +1376,7 @@ class QuestView(View):
             embed.set_image(url=MILESTONE_REWARD_IMAGE_URL)
         
         embed.add_field(
-            name="Step 1: Steam ID 연동",
+            name="Step 1: Link Steam ID",
             value=quest1_status,
             inline=False
         )
@@ -1388,13 +1388,13 @@ class QuestView(View):
         )
         
         embed.add_field(
-            name="Step 3: Spot Zero Steam page follow",
+            name="Step 3: Follow Spot Zero Steam Page",
             value=quest3_status,
             inline=False
         )
         
         embed.add_field(
-            name="Step 4: 포스트 라이크",
+            name="Step 4: Like Post",
             value=quest4_status,
             inline=False
         )
@@ -1430,7 +1430,7 @@ class QuestView(View):
                     pass
 
 
-@tree.command(name='steam', description='Spot Zero Hunter Program 시작하기')
+@tree.command(name='steam', description='Start Spot Zero Hunter Program')
 async def steam_command(interaction: discord.Interaction):
     """Steam 명령어 - Welcome Embed 표시"""
     db = DatabaseManager()
@@ -1449,7 +1449,7 @@ async def steam_command(interaction: discord.Interaction):
     
     embed = discord.Embed(
         title="🎮 Welcome to Spot Zero Hunter Program",
-        description="해당 퀘스트를 완료하면 디스코드 특수롤을 받을 수 있습니다.\n특수롤을 받은 모험가분들은 별도의 보상이 됩니다. (리워드 추후 공개)",
+        description="Complete these quests to receive a special Discord role.\nAdventurers who receive the special role will get additional rewards. (Rewards to be announced)",
         color=discord.Color.blue()
     )
     
@@ -1458,7 +1458,7 @@ async def steam_command(interaction: discord.Interaction):
         embed.set_image(url=MILESTONE_REWARD_IMAGE_URL)
     
     embed.add_field(
-        name="Step 1: Steam ID 연동",
+        name="Step 1: Link Steam ID",
         value=quest1_status,
         inline=False
     )
@@ -1470,13 +1470,13 @@ async def steam_command(interaction: discord.Interaction):
     )
     
     embed.add_field(
-        name="Step 3: Spot Zero Steam page follow",
+        name="Step 3: Follow Spot Zero Steam Page",
         value=quest3_status,
         inline=False
     )
     
     embed.add_field(
-        name="Step 4: 포스트 라이크",
+        name="Step 4: Like Post",
         value=quest4_status,
         inline=False
     )
