@@ -154,6 +154,26 @@ class DatabaseManager:
                 }
             return None
     
+    async def get_user_by_steam_id(self, steam_id: str) -> Optional[dict]:
+        """Steam ID로 사용자 정보 조회 (중복 체크용)"""
+        pool = await self._get_pool()
+        async with pool.acquire() as conn:
+            result = await conn.fetchrow('''
+                SELECT discord_id, steam_id, quest1_complete, quest2_complete, quest3_complete, quest4_complete
+                FROM users WHERE steam_id = $1
+            ''', steam_id)
+            
+            if result:
+                return {
+                    'discord_id': result['discord_id'],
+                    'steam_id': result['steam_id'],
+                    'quest1_complete': bool(result['quest1_complete']),
+                    'quest2_complete': bool(result['quest2_complete']),
+                    'quest3_complete': bool(result['quest3_complete']),
+                    'quest4_complete': bool(result['quest4_complete']) if result['quest4_complete'] is not None else False
+                }
+            return None
+    
     async def create_user(self, discord_id: int):
         """새 사용자 생성"""
         pool = await self._get_pool()
@@ -264,11 +284,16 @@ class SteamLinkModal(Modal, title='Link Steam Account'):
     async def on_submit(self, interaction: discord.Interaction):
         steam_input = self.steam_input.value.strip()
         
-        # Steam ID 추출
+        # 먼저 defer를 호출하여 상호작용을 처리
+        await interaction.response.defer(ephemeral=True)
+        
+        # Steam ID 형식 검증 (URL 또는 숫자만 허용)
+        is_valid_format = False
         steam_id = None
         
-        # URL에서 Steam ID 추출
+        # URL 형식 체크
         if 'steamcommunity.com' in steam_input:
+            is_valid_format = True
             # URL 패턴 매칭
             match = re.search(r'/profiles/(\d+)', steam_input)
             if match:
@@ -279,20 +304,34 @@ class SteamLinkModal(Modal, title='Link Steam Account'):
                     # 커스텀 URL인 경우, API로 변환 필요
                     custom_url = match.group(1)
                     steam_id = await resolve_vanity_url(custom_url)
-        else:
+        elif steam_input.isdigit():
             # 숫자만 있는 경우 (Steam ID)
-            if steam_input.isdigit():
-                steam_id = steam_input
+            is_valid_format = True
+            steam_id = steam_input
         
-        # 먼저 defer를 호출하여 상호작용을 처리
-        await interaction.response.defer(ephemeral=True)
-        
-        if not steam_id:
+        # 형식 검증 실패
+        if not is_valid_format or not steam_id:
             await interaction.followup.send(
-                "❌ Invalid Steam ID or URL. Please enter Steam ID or profile URL.",
+                "❌ Invalid Steam ID format. Please enter a valid Steam ID (numeric) or Steam profile URL.\n\n"
+                "**Valid formats:**\n"
+                "- Steam ID: `76561198012345678` (17-digit number)\n"
+                "- Profile URL: `https://steamcommunity.com/profiles/76561198012345678`\n"
+                "- Custom URL: `https://steamcommunity.com/id/yourname`",
                 ephemeral=True
             )
             return
+        
+        # Steam ID 중복 체크
+        existing_user = await self.db.get_user_by_steam_id(steam_id)
+        if existing_user:
+            # 같은 사용자가 이미 등록한 경우는 허용 (자신의 Steam ID 업데이트)
+            if existing_user['discord_id'] != interaction.user.id:
+                await interaction.followup.send(
+                    "❌ This Steam ID is already linked to another account.\n\n"
+                    "Please use a different Steam ID.",
+                    ephemeral=True
+                )
+                return
         
         # Steam API로 검증
         is_valid = await verify_steam_id(steam_id)
