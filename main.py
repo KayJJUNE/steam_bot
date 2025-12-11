@@ -44,10 +44,12 @@ class DatabaseManager:
             # Railway에서는 DATABASE_URL (내부 네트워크) 또는 DATABASE_PUBLIC_URL (외부 접근) 사용
             database_url = os.getenv('DATABASE_URL') or os.getenv('DATABASE_PUBLIC_URL')
             
-            # 디버깅: 환경 변수 확인
-            print(f"[DEBUG] DATABASE_URL exists: {bool(os.getenv('DATABASE_URL'))}")
-            print(f"[DEBUG] DATABASE_PUBLIC_URL exists: {bool(os.getenv('DATABASE_PUBLIC_URL'))}")
-            print(f"[DEBUG] All env vars: {[k for k in os.environ.keys() if 'DATABASE' in k or 'POSTGRES' in k]}")
+            # 디버깅: 환경 변수 확인 (DEBUG 모드일 때만 출력)
+            debug_mode = os.getenv('DEBUG', 'False').lower() == 'true'
+            if debug_mode:
+                print(f"[DEBUG] DATABASE_URL exists: {bool(os.getenv('DATABASE_URL'))}")
+                print(f"[DEBUG] DATABASE_PUBLIC_URL exists: {bool(os.getenv('DATABASE_PUBLIC_URL'))}")
+                print(f"[DEBUG] All env vars: {[k for k in os.environ.keys() if 'DATABASE' in k or 'POSTGRES' in k]}")
             
             if not database_url:
                 error_msg = (
@@ -577,6 +579,8 @@ async def check_wishlist(steam_id: str, app_id: str) -> bool:
 
 async def auto_assign_reward_role(interaction: discord.Interaction, db: DatabaseManager):
     """모든 퀘스트 완료 시 자동으로 보상 역할 부여"""
+    debug_mode = os.getenv('DEBUG', 'False').lower() == 'true'
+    
     try:
         # 사용자 데이터 확인
         user_data = await db.get_user(interaction.user.id)
@@ -595,13 +599,15 @@ async def auto_assign_reward_role(interaction: discord.Interaction, db: Database
         
         # Guild 확인 (DM에서는 역할 부여 불가)
         if not interaction.guild:
-            print(f"[ROLE] No guild found for user {interaction.user.id}")
+            if debug_mode:
+                print(f"[ROLE] No guild found for user {interaction.user.id}")
             return False
         
         # 역할 ID 확인
         try:
             role_id = int(REWARD_ROLE_ID)
-            print(f"[ROLE] Attempting to assign role ID: {role_id}")
+            if debug_mode:
+                print(f"[ROLE] Attempting to assign role ID: {role_id}")
         except (ValueError, TypeError):
             print(f"[ROLE] Invalid role ID: {REWARD_ROLE_ID}")
             return False
@@ -626,27 +632,32 @@ async def auto_assign_reward_role(interaction: discord.Interaction, db: Database
                 pass
             return False
         
-        print(f"[ROLE] Found role: {role.name} (ID: {role.id})")
+        if debug_mode:
+            print(f"[ROLE] Found role: {role.name} (ID: {role.id})")
         
         # 멤버 가져오기
         member = interaction.guild.get_member(interaction.user.id)
         if not member:
-            print(f"[ROLE] Member not in cache, fetching...")
+            if debug_mode:
+                print(f"[ROLE] Member not in cache, fetching...")
             member = await interaction.guild.fetch_member(interaction.user.id)
         
         if not member:
-            print(f"[ROLE] Could not fetch member {interaction.user.id}")
+            if debug_mode:
+                print(f"[ROLE] Could not fetch member {interaction.user.id}")
             return False
         
         # 이미 역할이 있는지 확인
         if role in member.roles:
-            print(f"[ROLE] User {interaction.user.id} already has role {role.name}")
+            if debug_mode:
+                print(f"[ROLE] User {interaction.user.id} already has role {role.name}")
             return True
         
         # 역할 자동 부여
-        print(f"[ROLE] Assigning role {role.name} to user {interaction.user.id}")
+        if debug_mode:
+            print(f"[ROLE] Assigning role {role.name} to user {interaction.user.id}")
         await member.add_roles(role, reason="Steam Code SZ Program - All quests completed")
-        print(f"[ROLE] Successfully assigned role {role.name} to user {interaction.user.id}")
+        print(f"[ROLE] ✅ Successfully assigned role {role.name} to user {interaction.user.id}")
         
         # 성공 메시지 전송
         try:
