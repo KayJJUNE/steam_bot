@@ -43,15 +43,28 @@ class DatabaseManager:
             # DATABASE_URL 환경 변수에서 연결 정보 가져오기
             # Railway에서는 DATABASE_URL (내부 네트워크) 또는 DATABASE_PUBLIC_URL (외부 접근) 사용
             database_url = os.getenv('DATABASE_URL') or os.getenv('DATABASE_PUBLIC_URL')
+            
+            # 디버깅: 환경 변수 확인
+            print(f"[DEBUG] DATABASE_URL exists: {bool(os.getenv('DATABASE_URL'))}")
+            print(f"[DEBUG] DATABASE_PUBLIC_URL exists: {bool(os.getenv('DATABASE_PUBLIC_URL'))}")
+            print(f"[DEBUG] All env vars: {[k for k in os.environ.keys() if 'DATABASE' in k or 'POSTGRES' in k]}")
+            
             if not database_url:
                 error_msg = (
                     "DATABASE_URL or DATABASE_PUBLIC_URL environment variable is not set.\n\n"
-                    "To fix this:\n"
-                    "1. Go to Railway dashboard → Your Project\n"
-                    "2. Click '+ New' → 'Database' → 'Add PostgreSQL'\n"
-                    "3. Railway will automatically set DATABASE_URL\n"
-                    "4. Redeploy your service\n\n"
-                    "The DATABASE_URL should look like: postgresql://user:password@host:port/database"
+                    "**Railway 설정 방법:**\n"
+                    "1. Railway 대시보드 → 프로젝트 선택\n"
+                    "2. PostgreSQL 서비스가 생성되어 있는지 확인\n"
+                    "3. 봇 서비스와 PostgreSQL 서비스가 같은 프로젝트에 있는지 확인\n"
+                    "4. PostgreSQL 서비스 → 'Variables' 탭에서 DATABASE_URL 확인\n"
+                    "5. 봇 서비스 → 'Variables' 탭에서 DATABASE_URL이 있는지 확인\n"
+                    "   - 없다면 PostgreSQL 서비스의 'Connect' 버튼 클릭\n"
+                    "   - 또는 수동으로 환경 변수 추가\n"
+                    "6. 서비스 재배포\n\n"
+                    "**수동 추가 시:**\n"
+                    "봇 서비스의 Variables 탭에서:\n"
+                    "- Key: DATABASE_URL\n"
+                    "  Value: postgresql://postgres:PBvfgJmxFoUoJOzRowIEbziWtSZKTywg@postgres.railway.internal:5432/railway"
                 )
                 raise ValueError(error_msg)
             
@@ -564,65 +577,115 @@ async def check_wishlist(steam_id: str, app_id: str) -> bool:
 
 async def auto_assign_reward_role(interaction: discord.Interaction, db: DatabaseManager):
     """모든 퀘스트 완료 시 자동으로 보상 역할 부여"""
-    # 모든 퀘스트 완료 확인
-    if not await db.are_all_quests_complete(interaction.user.id):
-        return False
-    
-    # Guild 확인 (DM에서는 역할 부여 불가)
-    if not interaction.guild:
-        return False
-    
     try:
-        role_id = int(REWARD_ROLE_ID)
-    except (ValueError, TypeError):
-        print(f"잘못된 역할 ID: {REWARD_ROLE_ID}")
-        return False
-    
-    # 역할 가져오기
-    role = interaction.guild.get_role(role_id)
-    if not role:
-        print(f"역할을 찾을 수 없습니다: {role_id}")
-        return False
-    
-    try:
+        # 사용자 데이터 확인
+        user_data = await db.get_user(interaction.user.id)
+        if not user_data:
+            print(f"[ROLE] User {interaction.user.id} not found in database")
+            return False
+        
+        # 모든 퀘스트 완료 확인
+        all_complete = await db.are_all_quests_complete(interaction.user.id)
+        print(f"[ROLE] User {interaction.user.id} - All quests complete: {all_complete}")
+        print(f"[ROLE] Quest status - Q1: {user_data.get('quest1_complete')}, Q2: {user_data.get('quest2_complete')}, Q3: {user_data.get('quest3_complete')}, Q4: {user_data.get('quest4_complete')}")
+        
+        if not all_complete:
+            print(f"[ROLE] Not all quests completed for user {interaction.user.id}")
+            return False
+        
+        # Guild 확인 (DM에서는 역할 부여 불가)
+        if not interaction.guild:
+            print(f"[ROLE] No guild found for user {interaction.user.id}")
+            return False
+        
+        # 역할 ID 확인
+        try:
+            role_id = int(REWARD_ROLE_ID)
+            print(f"[ROLE] Attempting to assign role ID: {role_id}")
+        except (ValueError, TypeError):
+            print(f"[ROLE] Invalid role ID: {REWARD_ROLE_ID}")
+            return False
+        
+        # 역할 가져오기
+        role = interaction.guild.get_role(role_id)
+        if not role:
+            print(f"[ROLE] Role {role_id} not found in guild {interaction.guild.id}")
+            # 역할을 찾을 수 없을 때 사용자에게 알림
+            try:
+                if interaction.response.is_done():
+                    await interaction.followup.send(
+                        f"⚠️ Role with ID {role_id} not found in this server. Please contact an administrator.",
+                        ephemeral=True
+                    )
+                else:
+                    await interaction.response.send_message(
+                        f"⚠️ Role with ID {role_id} not found in this server. Please contact an administrator.",
+                        ephemeral=True
+                    )
+            except:
+                pass
+            return False
+        
+        print(f"[ROLE] Found role: {role.name} (ID: {role.id})")
+        
         # 멤버 가져오기
         member = interaction.guild.get_member(interaction.user.id)
         if not member:
+            print(f"[ROLE] Member not in cache, fetching...")
             member = await interaction.guild.fetch_member(interaction.user.id)
+        
+        if not member:
+            print(f"[ROLE] Could not fetch member {interaction.user.id}")
+            return False
         
         # 이미 역할이 있는지 확인
         if role in member.roles:
+            print(f"[ROLE] User {interaction.user.id} already has role {role.name}")
             return True
         
         # 역할 자동 부여
-        await member.add_roles(role, reason="Spot Zero Hunter Program 모든 퀘스트 완료")
+        print(f"[ROLE] Assigning role {role.name} to user {interaction.user.id}")
+        await member.add_roles(role, reason="Steam Code SZ Program - All quests completed")
+        print(f"[ROLE] Successfully assigned role {role.name} to user {interaction.user.id}")
         
-        # 성공 메시지 전송 (defer가 이미 호출되었는지 확인)
+        # 성공 메시지 전송
         try:
-            # followup이 가능한지 확인
+            success_message = f"🎉 Congratulations! You've completed all quests and the role **{role.name}** has been automatically assigned!"
+            if interaction.response.is_done():
+                await interaction.followup.send(success_message, ephemeral=True)
+            else:
+                await interaction.response.send_message(success_message, ephemeral=True)
+            print(f"[ROLE] Success message sent to user {interaction.user.id}")
+        except Exception as e:
+            print(f"[ROLE] Failed to send success message: {e}")
+            # 메시지 전송 실패해도 역할은 부여되었으므로 성공으로 간주
+        
+        return True
+        
+    except discord.Forbidden as e:
+        print(f"[ROLE] Permission denied: {e}")
+        print(f"[ROLE] Bot may not have 'Manage Roles' permission or role hierarchy issue")
+        try:
             if interaction.response.is_done():
                 await interaction.followup.send(
-                    f"🎉 Congratulations! You've completed all quests and the role **{role.name}** has been automatically assigned!",
+                    "❌ Failed to assign role: Bot doesn't have permission to manage roles. Please contact an administrator.",
                     ephemeral=True
                 )
             else:
                 await interaction.response.send_message(
-                    f"🎉 Congratulations! You've completed all quests and the role **{role.name}** has been automatically assigned!",
+                    "❌ Failed to assign role: Bot doesn't have permission to manage roles. Please contact an administrator.",
                     ephemeral=True
                 )
-        except Exception as e:
-            print(f"롤 부여 성공 메시지 전송 실패: {e}")
-        
-        return True
-        
-    except discord.Forbidden:
-        print(f"역할 부여 권한이 없습니다: {role_id}")
+        except:
+            pass
         return False
     except discord.HTTPException as e:
-        print(f"역할 부여 중 HTTP 오류: {e}")
+        print(f"[ROLE] HTTP error: {e}")
+        import traceback
+        traceback.print_exc()
         return False
     except Exception as e:
-        print(f"역할 부여 중 예외 발생: {e}")
+        print(f"[ROLE] Unexpected error: {e}")
         import traceback
         traceback.print_exc()
         return False
