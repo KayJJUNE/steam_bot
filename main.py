@@ -41,17 +41,38 @@ class DatabaseManager:
         """데이터베이스 연결 풀 가져오기 (초기화)"""
         if self.pool is None:
             # DATABASE_URL 환경 변수에서 연결 정보 가져오기
-            database_url = os.getenv('DATABASE_URL')
+            # Railway에서는 DATABASE_URL (내부 네트워크) 또는 DATABASE_PUBLIC_URL (외부 접근) 사용
+            database_url = os.getenv('DATABASE_URL') or os.getenv('DATABASE_PUBLIC_URL')
             if not database_url:
-                raise ValueError("DATABASE_URL environment variable is not set")
+                error_msg = (
+                    "DATABASE_URL or DATABASE_PUBLIC_URL environment variable is not set.\n\n"
+                    "To fix this:\n"
+                    "1. Go to Railway dashboard → Your Project\n"
+                    "2. Click '+ New' → 'Database' → 'Add PostgreSQL'\n"
+                    "3. Railway will automatically set DATABASE_URL\n"
+                    "4. Redeploy your service\n\n"
+                    "The DATABASE_URL should look like: postgresql://user:password@host:port/database"
+                )
+                raise ValueError(error_msg)
             
             # Railway PostgreSQL URL 형식: postgresql://user:password@host:port/database
             # asyncpg는 postgresql:// 대신 postgres://를 사용할 수도 있음
             if database_url.startswith('postgresql://'):
                 database_url = database_url.replace('postgresql://', 'postgres://', 1)
             
-            self.pool = await asyncpg.create_pool(database_url, min_size=1, max_size=10)
-            await self.init_database()
+            try:
+                self.pool = await asyncpg.create_pool(database_url, min_size=1, max_size=10)
+                await self.init_database()
+            except Exception as e:
+                error_msg = (
+                    f"Failed to connect to PostgreSQL database.\n\n"
+                    f"Error: {str(e)}\n\n"
+                    f"Please check:\n"
+                    f"1. DATABASE_URL is correct\n"
+                    f"2. PostgreSQL service is running in Railway\n"
+                    f"3. Network connectivity is available"
+                )
+                raise ValueError(error_msg) from e
         return self.pool
     
     async def init_database(self):
@@ -1439,11 +1460,29 @@ async def steam_command(interaction: discord.Interaction):
     """Steam 명령어 - Welcome Embed 표시"""
     db = DatabaseManager()
     
-    # 사용자 데이터 조회
-    user_data = await db.get_user(interaction.user.id)
-    if not user_data:
-        await db.create_user(interaction.user.id)
+    try:
+        # 사용자 데이터 조회
         user_data = await db.get_user(interaction.user.id)
+        if not user_data:
+            await db.create_user(interaction.user.id)
+            user_data = await db.get_user(interaction.user.id)
+    except ValueError as e:
+        # DATABASE_URL이 없거나 연결 실패 시 사용자에게 안내
+        await interaction.response.send_message(
+            f"❌ Database configuration error.\n\n"
+            f"**Error:** {str(e)}\n\n"
+            f"Please contact the administrator to set up the database.",
+            ephemeral=True
+        )
+        return
+    except Exception as e:
+        # 기타 데이터베이스 오류
+        print(f"Database error in steam_command: {e}")
+        await interaction.response.send_message(
+            "❌ An error occurred while accessing the database. Please try again later.",
+            ephemeral=True
+        )
+        return
     
     # 퀘스트 상태
     quest1_status = "✅ Complete" if user_data.get('quest1_complete') else "❌ Incomplete"
