@@ -763,8 +763,8 @@ async def auto_assign_reward_role(interaction: discord.Interaction, db: Database
         # 성공 메시지 전송
         try:
             success_message = (
-                f"🎉 Congratulations! You've completed all quests and the role **{role.name}** has been automatically assigned!\n\n"
-                f"Adventurers who have acquired the role can now access [#steam-event](https://discord.com/channels/1277879440315121695/1448572785491181579)!"
+                f"🎉 Congratulations! You've completed all quests. The role **Code SZ** will be available after review and will be automatically assigned within 24 hours.\n\n"
+                f"After acquiring the role, you can access [#steam-event](https://discord.com/channels/1277879440315121695/1448572785491181579)!"
             )
             if interaction.response.is_done():
                 await interaction.followup.send(success_message, ephemeral=True)
@@ -999,9 +999,8 @@ class QuestSelect(Select):
         
         if selected == "all_complete":
             await interaction.response.send_message(
-                "🎉 You've completed all quests!\n\n"
-                "The reward role has been automatically assigned. Check it out in the server!\n\n"
-                "Adventurers who have acquired the role can now access [#steam-event](https://discord.com/channels/1277879440315121695/1448572785491181579)!",
+                "🎉 Congratulations! You've completed all quests. The role **Code SZ** will be available after review and will be automatically assigned within 24 hours.\n\n"
+                "After acquiring the role, you can access [#steam-event](https://discord.com/channels/1277879440315121695/1448572785491181579)!",
                 ephemeral=True
             )
             return
