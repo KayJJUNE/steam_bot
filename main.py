@@ -207,17 +207,28 @@ class DatabaseManager:
         return 32500
     
     async def are_all_quests_complete(self, discord_id: int) -> bool:
-        """모든 퀘스트가 완료되었는지 확인"""
-        user_data = await self.get_user(discord_id)
-        if not user_data:
-            return False
-        
-        return (
-            user_data.get('quest1_complete', False) and
-            user_data.get('quest2_complete', False) and
-            user_data.get('quest3_complete', False) and
-            user_data.get('quest4_complete', False)
-        )
+        """모든 퀘스트가 완료되었는지 확인 (데이터베이스에서 직접 확인)"""
+        pool = await self._get_pool()
+        async with pool.acquire() as conn:
+            result = await conn.fetchrow('''
+                SELECT 
+                    quest1_complete,
+                    quest2_complete,
+                    quest3_complete,
+                    quest4_complete
+                FROM users 
+                WHERE discord_id = $1
+            ''', discord_id)
+            
+            if not result:
+                return False
+            
+            return (
+                bool(result['quest1_complete']) and
+                bool(result['quest2_complete']) and
+                bool(result['quest3_complete']) and
+                bool(result['quest4_complete'])
+            )
     
     async def close(self):
         """데이터베이스 연결 풀 종료"""
@@ -642,19 +653,46 @@ async def auto_assign_reward_role(interaction: discord.Interaction, db: Database
     debug_mode = os.getenv('DEBUG', 'False').lower() == 'true'
     
     try:
-        # 사용자 데이터 확인
-        user_data = await db.get_user(interaction.user.id)
+        # 데이터베이스 업데이트가 완료되도록 지연 (트랜잭션 커밋 대기)
+        import asyncio
+        await asyncio.sleep(0.3)  # 300ms 지연 (PostgreSQL 트랜잭션 커밋 대기)
+        
+        # 최신 사용자 데이터 확인 (데이터베이스에서 다시 조회)
+        # 여러 번 시도하여 최신 데이터 확보
+        user_data = None
+        for attempt in range(3):
+            user_data = await db.get_user(interaction.user.id)
+            if user_data:
+                # 모든 퀘스트가 완료되었는지 직접 확인
+                q1 = user_data.get('quest1_complete', False)
+                q2 = user_data.get('quest2_complete', False)
+                q3 = user_data.get('quest3_complete', False)
+                q4 = user_data.get('quest4_complete', False)
+                
+                if q1 and q2 and q3 and q4:
+                    # 모든 퀘스트 완료 확인됨
+                    break
+                elif attempt < 2:
+                    # 아직 완료되지 않았으면 잠시 대기 후 재시도
+                    await asyncio.sleep(0.2)
+                    continue
+        
         if not user_data:
-            print(f"[ROLE] User {interaction.user.id} not found in database")
+            print(f"[ROLE] ❌ User {interaction.user.id} not found in database after retries")
             return False
         
         # 모든 퀘스트 완료 확인
-        all_complete = await db.are_all_quests_complete(interaction.user.id)
+        q1 = user_data.get('quest1_complete', False)
+        q2 = user_data.get('quest2_complete', False)
+        q3 = user_data.get('quest3_complete', False)
+        q4 = user_data.get('quest4_complete', False)
+        all_complete = q1 and q2 and q3 and q4
+        
         print(f"[ROLE] User {interaction.user.id} - All quests complete: {all_complete}")
-        print(f"[ROLE] Quest status - Q1: {user_data.get('quest1_complete')}, Q2: {user_data.get('quest2_complete')}, Q3: {user_data.get('quest3_complete')}, Q4: {user_data.get('quest4_complete')}")
+        print(f"[ROLE] Quest status - Q1: {q1}, Q2: {q2}, Q3: {q3}, Q4: {q4}")
         
         if not all_complete:
-            print(f"[ROLE] Not all quests completed for user {interaction.user.id}")
+            print(f"[ROLE] ❌ Not all quests completed for user {interaction.user.id}")
             return False
         
         # Guild 확인 (DM에서는 역할 부여 불가)
@@ -714,10 +752,13 @@ async def auto_assign_reward_role(interaction: discord.Interaction, db: Database
             return True
         
         # 역할 자동 부여
-        if debug_mode:
-            print(f"[ROLE] Assigning role {role.name} to user {interaction.user.id}")
-        await member.add_roles(role, reason="Steam Code SZ Program - All quests completed")
-        print(f"[ROLE] ✅ Successfully assigned role {role.name} to user {interaction.user.id}")
+        print(f"[ROLE] Attempting to assign role {role.name} (ID: {role.id}) to user {interaction.user.id}")
+        try:
+            await member.add_roles(role, reason="Steam Code SZ Program - All quests completed")
+            print(f"[ROLE] ✅ Successfully assigned role {role.name} to user {interaction.user.id}")
+        except Exception as role_error:
+            print(f"[ROLE] ❌ Failed to assign role: {role_error}")
+            raise  # 에러를 다시 발생시켜서 상위 예외 처리로 전달
         
         # 성공 메시지 전송
         try:
