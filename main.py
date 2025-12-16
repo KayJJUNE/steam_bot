@@ -4,6 +4,7 @@ from discord.ui import Button, View, Modal, TextInput, Select
 import aiohttp
 import os
 import re
+import ssl
 from typing import Optional
 from dotenv import load_dotenv
 from bs4 import BeautifulSoup
@@ -75,9 +76,45 @@ class DatabaseManager:
             if database_url.startswith('postgresql://'):
                 database_url = database_url.replace('postgresql://', 'postgres://', 1)
             
+            # Railway PostgreSQL은 SSL 연결을 요구함
+            # SSL 설정 추가
+            ssl_config = None
+            is_railway = 'railway' in database_url.lower() or 'rlwy.net' in database_url.lower()
+            
+            if is_railway:
+                # Railway PostgreSQL의 경우 SSL을 요구
+                # asyncpg는 ssl='require' 또는 ssl context를 사용할 수 있음
+                try:
+                    # 방법 1: ssl='require' 사용 (간단한 방법)
+                    ssl_config = 'require'
+                except:
+                    # 방법 2: SSL context 사용 (더 세밀한 제어)
+                    ssl_config = ssl.create_default_context()
+                    ssl_config.check_hostname = False
+                    ssl_config.verify_mode = ssl.CERT_NONE
+            
             try:
-                self.pool = await asyncpg.create_pool(database_url, min_size=1, max_size=10)
+                # SSL 설정이 있으면 적용
+                if ssl_config:
+                    print(f"[DB] Connecting to PostgreSQL with SSL (Railway: {is_railway})")
+                    self.pool = await asyncpg.create_pool(
+                        database_url, 
+                        min_size=1, 
+                        max_size=10,
+                        ssl=ssl_config,
+                        command_timeout=60  # 타임아웃 설정
+                    )
+                else:
+                    print(f"[DB] Connecting to PostgreSQL without SSL")
+                    self.pool = await asyncpg.create_pool(
+                        database_url, 
+                        min_size=1, 
+                        max_size=10,
+                        command_timeout=60
+                    )
+                print(f"[DB] Successfully connected to PostgreSQL")
                 await self.init_database()
+                print(f"[DB] Database initialized successfully")
             except Exception as e:
                 error_msg = (
                     f"Failed to connect to PostgreSQL database.\n\n"
