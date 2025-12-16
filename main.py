@@ -5,6 +5,7 @@ import aiohttp
 import os
 import re
 import ssl
+import asyncio
 from typing import Optional
 from dotenv import load_dotenv
 from bs4 import BeautifulSoup
@@ -36,11 +37,21 @@ class DatabaseManager:
     
     def __init__(self):
         self.pool = None
-        self._init_task = None
+        self._init_lock = asyncio.Lock()  # Race condition 방지를 위한 Lock
+        self._initialized = False  # 초기화 완료 플래그
     
     async def _get_pool(self):
-        """데이터베이스 연결 풀 가져오기 (초기화)"""
-        if self.pool is None:
+        """데이터베이스 연결 풀 가져오기 (초기화) - Thread-safe"""
+        # 이미 풀이 있으면 바로 반환
+        if self.pool is not None:
+            return self.pool
+        
+        # Lock을 사용하여 동시 초기화 방지
+        async with self._init_lock:
+            # Lock을 획득한 후 다시 확인 (다른 코루틴이 이미 초기화했을 수 있음)
+            if self.pool is not None:
+                return self.pool
+            
             # DATABASE_URL 환경 변수에서 연결 정보 가져오기
             # Railway에서는 DATABASE_URL (내부 네트워크) 또는 DATABASE_PUBLIC_URL (외부 접근) 사용
             database_url = os.getenv('DATABASE_URL') or os.getenv('DATABASE_PUBLIC_URL')
@@ -72,7 +83,6 @@ class DatabaseManager:
                 raise ValueError(error_msg)
             
             # Railway PostgreSQL URL 형식: postgresql://user:password@host:port/database
-            # asyncpg는 postgresql:// 대신 postgres://를 사용
             is_railway = 'railway' in database_url.lower() or 'rlwy.net' in database_url.lower()
             
             # URL 파싱하여 연결 파라미터 추출
@@ -88,12 +98,12 @@ class DatabaseManager:
             print(f"[DB] Parsed connection: host={host}, port={port}, user={user}, database={database}")
             
             # Railway PostgreSQL은 SSL 연결을 요구함
-            # "invalid length of startup packet" 에러를 방지하기 위해 SSL을 명시적으로 설정
+            # "invalid length of startup packet" 및 "ALPN" 에러를 방지하기 위해 SSL을 명시적으로 설정
             ssl_config = None
             if is_railway:
                 # Railway PostgreSQL의 경우 SSL을 요구
                 # asyncpg는 ssl=True 또는 ssl context를 사용
-                # 간단한 방법: ssl=True 사용
+                # Railway는 ALPN을 요구하지 않으므로 ssl=True 사용
                 ssl_config = True
                 print(f"[DB] Railway PostgreSQL detected - using SSL=True")
             else:
@@ -127,11 +137,15 @@ class DatabaseManager:
                     print(f"[DB] ✅ Successfully connected to PostgreSQL")
                     print(f"[DB] PostgreSQL version: {version[:50]}...")
                 
-                # 데이터베이스 초기화
-                print(f"[DB] Initializing database...")
-                await self.init_database()
-                print(f"[DB] ✅ Database initialized successfully")
+                # 데이터베이스 초기화 (재귀 호출 방지를 위해 _init_database_internal 사용)
+                if not self._initialized:
+                    print(f"[DB] Initializing database...")
+                    await self._init_database_internal()
+                    self._initialized = True
+                    print(f"[DB] ✅ Database initialized successfully")
             except Exception as e:
+                # 에러 발생 시 풀을 None으로 설정하여 재시도 가능하게 함
+                self.pool = None
                 error_msg = (
                     f"Failed to connect to PostgreSQL database.\n\n"
                     f"Error: {str(e)}\n\n"
@@ -141,12 +155,16 @@ class DatabaseManager:
                     f"3. Network connectivity is available"
                 )
                 raise ValueError(error_msg) from e
+        
         return self.pool
     
-    async def init_database(self):
-        """데이터베이스 초기화 및 테이블 생성"""
-        pool = await self._get_pool()
-        async with pool.acquire() as conn:
+    async def _init_database_internal(self):
+        """데이터베이스 초기화 및 테이블 생성 (내부 메서드 - 재귀 호출 방지)"""
+        # _get_pool을 호출하지 않고 직접 self.pool 사용 (이미 초기화됨)
+        if self.pool is None:
+            raise RuntimeError("Database pool is not initialized")
+        
+        async with self.pool.acquire() as conn:
             await conn.execute('''
                 CREATE TABLE IF NOT EXISTS users (
                     discord_id BIGINT PRIMARY KEY,
