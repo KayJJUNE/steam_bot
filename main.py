@@ -72,55 +72,65 @@ class DatabaseManager:
                 raise ValueError(error_msg)
             
             # Railway PostgreSQL URL 형식: postgresql://user:password@host:port/database
-            # asyncpg는 postgresql:// 대신 postgres://를 사용할 수도 있음
-            if database_url.startswith('postgresql://'):
-                database_url = database_url.replace('postgresql://', 'postgres://', 1)
-            
-            # Railway PostgreSQL은 SSL 연결을 요구함
-            # SSL 설정 추가
+            # asyncpg는 postgresql:// 대신 postgres://를 사용
             is_railway = 'railway' in database_url.lower() or 'rlwy.net' in database_url.lower()
             
-            # Railway PostgreSQL의 경우 SSL context를 명시적으로 생성
-            # "invalid length of startup packet" 에러를 방지하기 위해 SSL 설정을 명확히 함
+            # URL 파싱하여 연결 파라미터 추출
+            parsed = urlparse(database_url)
+            
+            # 연결 파라미터 구성
+            host = parsed.hostname
+            port = parsed.port or 5432
+            user = parsed.username
+            password = parsed.password
+            database = parsed.path.lstrip('/')
+            
+            print(f"[DB] Parsed connection: host={host}, port={port}, user={user}, database={database}")
+            
+            # Railway PostgreSQL은 SSL 연결을 요구함
+            # "invalid length of startup packet" 에러를 방지하기 위해 SSL을 명시적으로 설정
             ssl_config = None
             if is_railway:
-                # Railway PostgreSQL은 SSL을 요구하지만 인증서 검증은 선택사항
-                ssl_config = ssl.create_default_context()
-                ssl_config.check_hostname = False
-                ssl_config.verify_mode = ssl.CERT_NONE
-                # ALPN 경고를 피하기 위해 명시적으로 설정
-                print(f"[DB] Railway PostgreSQL detected - configuring SSL connection")
+                # Railway PostgreSQL의 경우 SSL을 요구
+                # asyncpg는 ssl=True 또는 ssl context를 사용
+                # 간단한 방법: ssl=True 사용
+                ssl_config = True
+                print(f"[DB] Railway PostgreSQL detected - using SSL=True")
+            else:
+                # URL에 sslmode 파라미터가 있으면 확인
+                if 'sslmode=require' in database_url.lower() or 'sslmode=prefer' in database_url.lower():
+                    ssl_config = True
+                    print(f"[DB] SSL mode detected in URL - using SSL=True")
             
             try:
-                # 연결 옵션 설정
-                pool_kwargs = {
-                    'min_size': 1,
-                    'max_size': 10,
-                    'command_timeout': 60,
-                    'server_settings': {
+                # 연결 풀 생성 (개별 파라미터 사용)
+                print(f"[DB] Creating connection pool...")
+                self.pool = await asyncpg.create_pool(
+                    host=host,
+                    port=port,
+                    user=user,
+                    password=password,
+                    database=database,
+                    ssl=ssl_config,
+                    min_size=1,
+                    max_size=10,
+                    command_timeout=60,
+                    server_settings={
                         'application_name': 'steam_bot'
                     }
-                }
-                
-                # SSL 설정 추가
-                if ssl_config:
-                    pool_kwargs['ssl'] = ssl_config
-                    print(f"[DB] Connecting to PostgreSQL with SSL")
-                else:
-                    print(f"[DB] Connecting to PostgreSQL without SSL")
-                
-                # 연결 풀 생성
-                self.pool = await asyncpg.create_pool(database_url, **pool_kwargs)
+                )
                 
                 # 연결 테스트
+                print(f"[DB] Testing connection...")
                 async with self.pool.acquire() as test_conn:
                     version = await test_conn.fetchval('SELECT version()')
-                    print(f"[DB] Successfully connected to PostgreSQL")
+                    print(f"[DB] ✅ Successfully connected to PostgreSQL")
                     print(f"[DB] PostgreSQL version: {version[:50]}...")
                 
                 # 데이터베이스 초기화
+                print(f"[DB] Initializing database...")
                 await self.init_database()
-                print(f"[DB] Database initialized successfully")
+                print(f"[DB] ✅ Database initialized successfully")
             except Exception as e:
                 error_msg = (
                     f"Failed to connect to PostgreSQL database.\n\n"
