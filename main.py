@@ -78,41 +78,47 @@ class DatabaseManager:
             
             # Railway PostgreSQL은 SSL 연결을 요구함
             # SSL 설정 추가
-            ssl_config = None
             is_railway = 'railway' in database_url.lower() or 'rlwy.net' in database_url.lower()
             
+            # Railway PostgreSQL의 경우 SSL context를 명시적으로 생성
+            # "invalid length of startup packet" 에러를 방지하기 위해 SSL 설정을 명확히 함
+            ssl_config = None
             if is_railway:
-                # Railway PostgreSQL의 경우 SSL을 요구
-                # asyncpg는 ssl='require' 또는 ssl context를 사용할 수 있음
-                try:
-                    # 방법 1: ssl='require' 사용 (간단한 방법)
-                    ssl_config = 'require'
-                except:
-                    # 방법 2: SSL context 사용 (더 세밀한 제어)
-                    ssl_config = ssl.create_default_context()
-                    ssl_config.check_hostname = False
-                    ssl_config.verify_mode = ssl.CERT_NONE
+                # Railway PostgreSQL은 SSL을 요구하지만 인증서 검증은 선택사항
+                ssl_config = ssl.create_default_context()
+                ssl_config.check_hostname = False
+                ssl_config.verify_mode = ssl.CERT_NONE
+                # ALPN 경고를 피하기 위해 명시적으로 설정
+                print(f"[DB] Railway PostgreSQL detected - configuring SSL connection")
             
             try:
-                # SSL 설정이 있으면 적용
+                # 연결 옵션 설정
+                pool_kwargs = {
+                    'min_size': 1,
+                    'max_size': 10,
+                    'command_timeout': 60,
+                    'server_settings': {
+                        'application_name': 'steam_bot'
+                    }
+                }
+                
+                # SSL 설정 추가
                 if ssl_config:
-                    print(f"[DB] Connecting to PostgreSQL with SSL (Railway: {is_railway})")
-                    self.pool = await asyncpg.create_pool(
-                        database_url, 
-                        min_size=1, 
-                        max_size=10,
-                        ssl=ssl_config,
-                        command_timeout=60  # 타임아웃 설정
-                    )
+                    pool_kwargs['ssl'] = ssl_config
+                    print(f"[DB] Connecting to PostgreSQL with SSL")
                 else:
                     print(f"[DB] Connecting to PostgreSQL without SSL")
-                    self.pool = await asyncpg.create_pool(
-                        database_url, 
-                        min_size=1, 
-                        max_size=10,
-                        command_timeout=60
-                    )
-                print(f"[DB] Successfully connected to PostgreSQL")
+                
+                # 연결 풀 생성
+                self.pool = await asyncpg.create_pool(database_url, **pool_kwargs)
+                
+                # 연결 테스트
+                async with self.pool.acquire() as test_conn:
+                    version = await test_conn.fetchval('SELECT version()')
+                    print(f"[DB] Successfully connected to PostgreSQL")
+                    print(f"[DB] PostgreSQL version: {version[:50]}...")
+                
+                # 데이터베이스 초기화
                 await self.init_database()
                 print(f"[DB] Database initialized successfully")
             except Exception as e:
