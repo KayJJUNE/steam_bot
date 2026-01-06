@@ -1521,7 +1521,27 @@ class QuestView(View):
 
 @tree.command(name='steam', description='Start Steam Code SZ Program')
 async def steam_command(interaction: discord.Interaction):
-    """Steam 명령어 - Welcome Embed 표시"""
+    """Steam command - Show Welcome Embed"""
+    # Defer response immediately to avoid rate limit issues
+    # This gives us more time to process and reduces rate limit errors
+    try:
+        await interaction.response.defer(ephemeral=True)
+    except discord.errors.InteractionResponded:
+        # Already responded, continue with followup
+        pass
+    except discord.errors.HTTPException as e:
+        if e.status == 429:
+            # Rate limited - try to send error message via followup
+            try:
+                await interaction.followup.send(
+                    "⚠️ Discord API rate limit exceeded. Please try again in a few seconds.",
+                    ephemeral=True
+                )
+            except:
+                pass
+            return
+        raise
+    
     db = DatabaseManager()
     
     try:
@@ -1532,23 +1552,35 @@ async def steam_command(interaction: discord.Interaction):
             user_data = await db.get_user(interaction.user.id)
     except ValueError as e:
         # DATABASE_URL not set or connection failed
-        await interaction.response.send_message(
-            f"❌ Database configuration error.\n\n"
-            f"**Error:** {str(e)}\n\n"
-            f"Please contact the administrator to set up the database.",
-            ephemeral=True
-        )
+        try:
+            await interaction.followup.send(
+                f"❌ Database configuration error.\n\n"
+                f"**Error:** {str(e)}\n\n"
+                f"Please contact the administrator to set up the database.",
+                ephemeral=True
+            )
+        except discord.errors.HTTPException as http_err:
+            if http_err.status == 429:
+                print(f"Rate limited while sending database error message: {http_err}")
+            else:
+                raise
         return
     except Exception as e:
         # Other database errors
         print(f"Database error in steam_command: {e}")
-        await interaction.response.send_message(
-            "❌ An error occurred while accessing the database. Please try again later.",
-            ephemeral=True
-        )
+        try:
+            await interaction.followup.send(
+                "❌ An error occurred while accessing the database. Please try again later.",
+                ephemeral=True
+            )
+        except discord.errors.HTTPException as http_err:
+            if http_err.status == 429:
+                print(f"Rate limited while sending database error message: {http_err}")
+            else:
+                raise
         return
     
-    # 퀘스트 상태
+    # Quest status
     quest1_status = "✅ Complete" if user_data.get('quest1_complete') else "❌ Incomplete"
     quest2_status = "✅ Complete" if user_data.get('quest2_complete') else "❌ Incomplete"
     quest3_status = "✅ Complete" if user_data.get('quest3_complete') else "❌ Incomplete"
@@ -1560,7 +1592,7 @@ async def steam_command(interaction: discord.Interaction):
         color=discord.Color.blue()
     )
     
-    # 마일스톤 리워드 이미지 추가
+    # Add milestone reward image
     if MILESTONE_REWARD_IMAGE_URL:
         embed.set_image(url=MILESTONE_REWARD_IMAGE_URL)
     
@@ -1590,7 +1622,23 @@ async def steam_command(interaction: discord.Interaction):
     
     view = QuestView(db, user_data)
     
-    await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
+    # Send message via followup (since we already deferred)
+    try:
+        await interaction.followup.send(embed=embed, view=view, ephemeral=True)
+    except discord.errors.HTTPException as e:
+        if e.status == 429:
+            # Rate limited - try again with exponential backoff
+            print(f"Rate limited in steam_command followup, retrying...")
+            await asyncio.sleep(2)  # Wait 2 seconds
+            try:
+                await interaction.followup.send(
+                    "⚠️ Discord API is currently rate limited. Please try the command again in a few seconds.",
+                    ephemeral=True
+                )
+            except:
+                pass
+        else:
+            raise
 
 
 @bot.event
