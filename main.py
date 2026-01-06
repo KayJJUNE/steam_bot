@@ -1491,28 +1491,46 @@ class QuestView(View):
         # View 재생성 (상태 반영)
         view = QuestView(self.db, user_data)
         
-        # interaction 상태 확인 및 메시지 전송
+        # Check interaction status and send message
         try:
-            # response가 이미 완료되었는지 확인
+            # Check if response is already done
             if interaction.response.is_done():
-                # followup.send 사용 (이미 defer 또는 response가 완료된 경우)
+                # Use followup.send (already deferred or response completed)
                 await interaction.followup.send(embed=embed, view=view, ephemeral=True)
             else:
-                # response.send_message 사용 (아직 response가 완료되지 않은 경우)
+                # Use response.send_message (response not completed yet)
                 await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
         except discord.errors.InteractionResponded:
-            # 이미 응답이 전송된 경우 followup 사용
+            # Already responded, use followup
             await interaction.followup.send(embed=embed, view=view, ephemeral=True)
+        except discord.errors.HTTPException as e:
+            if e.status == 429:
+                # Rate limited - wait and retry
+                print(f"Rate limited in update_embed, retrying after delay...")
+                await asyncio.sleep(2)
+                try:
+                    await interaction.followup.send(embed=embed, view=view, ephemeral=True)
+                except:
+                    # If still fails, try to send a simple message
+                    try:
+                        await interaction.followup.send(
+                            "⚠️ Discord API rate limit. Please try again in a moment.",
+                            ephemeral=True
+                        )
+                    except:
+                        pass
+            else:
+                raise
         except Exception as e:
-            print(f"update_embed 메시지 전송 오류: {e}")
+            print(f"update_embed message send error: {e}")
             import traceback
             traceback.print_exc()
-            # edit 시도
+            # Try edit
             try:
                 await interaction.edit_original_response(embed=embed, view=view)
             except Exception as e2:
-                print(f"update_embed edit 오류: {e2}")
-                # 최후의 수단: followup 재시도
+                print(f"update_embed edit error: {e2}")
+                # Last resort: retry followup
                 try:
                     await interaction.followup.send(embed=embed, view=view, ephemeral=True)
                 except:
